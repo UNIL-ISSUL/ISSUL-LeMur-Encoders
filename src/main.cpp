@@ -1,16 +1,17 @@
 #include <Arduino.h>
 #include <M5Atom.h>
-#include <ModbusRTUMaster.h>
+#include <ArduinoModbus.h>
+#include <ArduinoRS485.h>
+#include "ATOM_DTU_NB.h"
 #include <Wire.h>
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 
 //modbus communication
-unsigned long baudrate = 57600UL;
-#define RX 33
-#define TX 23
-ModbusRTUMaster master(Serial1);
+RS485Class RS485(Serial2, ATOM_DTU_RS485_RX, ATOM_DTU_RS485_TX, -1, -1);
 #define VICON_ADDRESS 4    //modbus address of the Vicon
+//#define baudrate 57600UL
+#define baudrate 9600UL
 
 //register to write on Vicon
 #define REGISTERS_TO_WRITE_VICON 3   //number of register to write : lift angle, belt speed
@@ -37,8 +38,10 @@ void setup() {
   Serial.println("M5Atom initialized");
 
   //initialize the modbus communication
-  Serial1.begin(baudrate, SERIAL_8E1, RX, TX);
-  master.begin(baudrate);
+  if (!ModbusRTUClient.begin(baudrate, SERIAL_8E1)) {
+    Serial.println("Failed to start Modbus RTU Client!");
+    while (1);
+  }
 
   //initialize the i2c communication
   Wire.begin();
@@ -94,7 +97,17 @@ void loop() {
         M5.dis.drawpix(0, CRGB::Green);
     }
   }
-
+  static uint32_t last_request = 0;
+  if (!ModbusRTUClient.holdingRegisterWrite(VICON_ADDRESS, 0x0005, 0x0000)) {
+        Serial.print("Failed to write coil! ");
+        Serial.println(ModbusRTUClient.lastError());
+  }
+  if(debug) {
+    Serial.println("time between modbus request : " + String(millis() - last_request) + " ms"); //time between two modbus request
+  }
+  delay(2);
+  last_request = millis();
+  /*
   //Send Modbus request
   static uint32_t last_request = 0;
   if (master.isIdle() && ((millis() - last_request) > 1000)) {
@@ -126,7 +139,7 @@ void loop() {
 
     last_request = millis();
   }
-
+  
    //check for modbus response
   if (master.isWaitingResponse() ) {
     ModbusResponse response = master.available();
@@ -146,6 +159,7 @@ void loop() {
     M5.dis.drawpix(0, CRGB::Red);
     master.clearException();
   }
+  */
 }
 
 float compute_encoder_speed() {
