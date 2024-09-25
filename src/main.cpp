@@ -7,16 +7,31 @@
 #include <RunningMedian.h>
 #include "ewma.h"
 
-//modbus communication
-unsigned long baudrate = 115200UL;  //19200, 38400, 57600, 115200
-#define RX 33
-#define TX 23
-ModbusRTUMaster master(Serial2);
-#define VICON_ADDRESS 4    //modbus address of the Vicon
+//bluetooth
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
 
-//register to write on Vicon
-#define REGISTERS_TO_WRITE_VICON 3   //number of register to write : lift angle, belt speed
-uint16_t outputRegistersVicon[REGISTERS_TO_WRITE_VICON] = {0, 0, 0}; //belt speed, lift angle, blet torque
+//bluetooth server
+BLEServer *pServer = NULL;
+BLECharacteristic *pCharacteristic = NULL;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+#include <BLE2902.h>  //client configuration descriptor
+//#include <BLE2901.h>  //client characteristic configuration descriptor
+
+#define SERVICE_UUID "1826" //fitness machine service
+#define CHARACTERISTIC_UUID "2ACD" //treadmill data characteristic
+
+class MyServerCallbacks : public BLEServerCallbacks {
+  void onConnect(BLEServer *pServer) {
+    deviceConnected = true;
+  };
+
+  void onDisconnect(BLEServer *pServer) {
+    deviceConnected = false;
+  }
+};
 
 //i2c wire communication
 #define I2C_FREQ 400000UL
@@ -57,9 +72,26 @@ void setup() {
   Serial.begin(115200);
   Serial.println("M5Atom initialized");
 
-  //initialize the modbus communication
-  Serial2.begin(baudrate, SERIAL_8E1, RX, TX);
-  master.begin(baudrate);
+  //initialize the BLE
+  BLEDevice::init("Le Mur");
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+  pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID,BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  pCharacteristic->addDescriptor(new BLE2902());
+  //start service
+  pService->start();
+  //start advertising
+  BLEAdvertising *pAdvertising = pServer->getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(false);
+  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+  Serial.println("BLE service started, waiting clien to notify");
+
+
+  pCharacteristic->addDescriptor(new BLE2902());
 
   //initialize the timer
   //timer = timerBegin(2, 1, true); //timer 0, prescaler 80, count up
@@ -119,6 +151,26 @@ float encoder_speed_filtered;
 void loop() {
   //M5 update for button
   M5.update();
+
+  //check if client is connected
+  if (deviceConnected) {
+    //send data to client
+    pCharacteristic->setValue((uint8_t*)&encoder_speed, 4); //4byte float
+    pCharacteristic->notify();
+    delay(5); // bluetooth stack will go into congestion, if too many packets are sent
+  }
+  //disconnecting
+  if (!deviceConnected && oldDeviceConnected) {
+    delay(500); // give the bluetooth stack the chance to get things ready
+    pServer->startAdvertising(); // restart advertising
+    Serial.println("start advertising");
+    oldDeviceConnected = deviceConnected;
+  }
+  //connecting
+  if (deviceConnected && !oldDeviceConnected) {
+    // do stuff here on connecting
+    oldDeviceConnected = deviceConnected;
+  }
   
   //change parameters with buttons
   if(M5.Btn.wasPressed()){
@@ -150,7 +202,7 @@ void loop() {
     last_time = time;
   }*/
 
-  //Send Modbus request
+  /*//Send Modbus request
   static uint32_t last_request = 0;
   if (master.isIdle()) {
     const float  max_pulse_sec = 2900.0 / 60 * 1504; //2900 tr/min at 100Hz with 1504 pulse per rotation
@@ -226,29 +278,9 @@ void loop() {
   if (millis() - last_exception > 1000) {
     if(!debug) M5.dis.drawpix(0, CRGB::Green);
     else M5.dis.drawpix(0, CRGB::Orange);
-  }
+  }*/
 }
-/*
-float compute_encoder_speed_3(uint32_t encoder_count) {
-  //define last values 
-  static uint64_t last_time = 0;
-  static long last_encoder_count = 0;
-  //compute deltas
-  //read encoder value
-  uint64_t time = timerReadMicros(timer);
-  //compute deltas count and time
-  uint32_t delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time - last_time;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
-  //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time = timerReadMicros(timer);
-  //retunr speed pulses per second
-  return encoder_speed;
-}*/
+
 
 float compute_encoder_speed_2(float encoder_count,uint32_t time_us) {
   //define last values 
