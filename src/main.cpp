@@ -152,9 +152,19 @@ void loop() {
   //M5 update for button
   M5.update();
 
+  //read encoder value
+  encoder_count_median.add(encoder.getEncoderValue());
+  static float encoder_cont_last_value = 0;
+  encoder_count = encoder_count_median.getMedian();
+  encoder_count_filtered = encoder_count_ewma.filter(encoder_count);
+
+  //compute encoder speed
+  encoder_speed = compute_encoder_speed_2(encoder_count_filtered, micros());
+
   //check if client is connected
   if (deviceConnected) {
     //send data to client
+    //compute encoder speed
     pCharacteristic->setValue((uint8_t*)&encoder_speed, 4); //4byte float
     pCharacteristic->notify();
     delay(5); // bluetooth stack will go into congestion, if too many packets are sent
@@ -185,11 +195,6 @@ void loop() {
     }
   }
 
-  //read encoder value
-  encoder_count_median.add(encoder.getEncoderValue());
-  static float encoder_cont_last_value = 0;
-  encoder_count = encoder_count_median.getMedian();
-  encoder_count_filtered = encoder_count_ewma.filter(encoder_count);
   /*float delta_count = encoder_count - encoder_cont_last_value;
   encoder_cont_last_value = encoder_count;
 
