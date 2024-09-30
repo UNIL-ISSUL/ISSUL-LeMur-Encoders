@@ -7,30 +7,21 @@
 #include "ewma.h"
 
 //bluetooth
-#include <BLEDevice.h>
-#include <BLEServer.h>
-#include <BLEUtils.h>
-
-//bluetooth server
-BLEServer *pServer = NULL;
-BLECharacteristic *pCharacteristic = NULL;
+#include <BluetoothSerial.h>
+//check if bluetooth is available
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+//check if bluetooth spp is available
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
+#endif
+//create bluetooth object
+BluetoothSerial SerialBT;
+String myName = "LeMur streaming";
+const char* pin="1234";
 bool deviceConnected = false;
-bool oldDeviceConnected = false;
-#include <BLE2902.h>  //client configuration descriptor
-//#include <BLE2901.h>  //client characteristic configuration descriptor
-
-#define SERVICE_UUID "1826" //fitness machine service
-#define CHARACTERISTIC_UUID "2ACD" //treadmill data characteristic
-
-class MyServerCallbacks : public BLEServerCallbacks {
-  void onConnect(BLEServer *pServer) {
-    deviceConnected = true;
-  };
-
-  void onDisconnect(BLEServer *pServer) {
-    deviceConnected = false;
-  }
-};
+//#define USE_NAME
 
 //i2c wire communication
 #define I2C_FREQ 400000UL
@@ -46,6 +37,7 @@ float compute_encoder_speed_3(uint32_t encoder_count);
 //define timer to measure speed
 //https://deepbluembedded.com/esp32-timers-timer-interrupt-tutorial-arduino-ide/?utm_content=cmp-true
 hw_timer_t *timer = NULL;
+bool flag_read_encoder = false;
 
 //i2c multiplexer communication
 TCA9548 i2cMultiplexer(0x70);
@@ -65,32 +57,25 @@ uint32_t readEncoder() {
     return (int32_t)((Wire.read() << 24) | (Wire.read() << 16) | (Wire.read() << 8) | Wire.read());
 } 
 
+void IRAM_ATTR onTimer(){
+  flag_read_encoder = true;
+}
+
 void setup() {
   //initialize the M5Atom
   M5.begin(true, true, true); // enable serial, enable I2C, enable display (led)
-  Serial.begin(115200);
+  //Serial.begin(115200);
   Serial.println("M5Atom initialized");
+  //init bluetooth ssp as master
+  SerialBT.begin(myName, false);
+  //SerialBT.deleteAllBondedDevices(); // Uncomment this to delete paired devices; Must be called after begin
+  Serial.printf("The device \"%s\" started in master mode, make sure slave BT device is on!\n", myName.c_str());
 
-  //initialize the BLE
-  BLEDevice::init("Le Mur");
-  pServer = BLEDevice::createServer();
-  pServer->setCallbacks(new MyServerCallbacks());
-  BLEService *pService = pServer->createService(SERVICE_UUID);
-  pCharacteristic = pService->createCharacteristic(CHARACTERISTIC_UUID,BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
-  pCharacteristic->addDescriptor(new BLE2902());
-  //start service
-  pService->start();
-  //start advertising
-  BLEAdvertising *pAdvertising = pServer->getAdvertising();
-  pAdvertising->addServiceUUID(SERVICE_UUID);
-  pAdvertising->setScanResponse(false);
-  pAdvertising->setMinPreferred(0x06);  // functions that help with iPhone connections issue
-  pAdvertising->setMinPreferred(0x12);
-  BLEDevice::startAdvertising();
-  Serial.println("BLE service started, waiting clien to notify");
-
-
-  pCharacteristic->addDescriptor(new BLE2902());
+#ifndef USE_NAME
+  //SerialBT.setPin(pin);
+  Serial.println("Using PIN");
+  deviceConnected = true;
+#endif
 
   //initialize the timer
   //timer = timerBegin(2, 1, true); //timer 0, prescaler 80, count up
@@ -100,11 +85,13 @@ void setup() {
   //Wire.setPins(25U, 21U); //default pins (21, 22)
   Wire.setClock(I2C_FREQ);
   //Wire.setTimeOut(1000); //1ms timeout
-  Wire.begin(25U, 21U);
+  //Wire.begin(25U, 21U);
+  //Wire.begin(32U, 33U);
 
 
   //initialize the encoder
   if(encoder.begin(&Wire, UNIT_EXT_ENCODER_ADDR, 25U, 21U, I2C_FREQ)){
+  //if(encoder.begin(&Wire, UNIT_EXT_ENCODER_ADDR, 33U, 33U, I2C_FREQ)){
     Serial.println("Encoder initialized");
     encoder.setPulse(360);
     encoder.resetEncoder();
@@ -112,7 +99,7 @@ void setup() {
   else{
     Serial.println("Encoder initialization failed");
   }
-
+  /*
   //initialize the i2c multiplexer
   if(i2cMultiplexer.begin()){
     Serial.println("I2C Multiplexer initialized");
@@ -136,7 +123,11 @@ void setup() {
       Serial.println("ADC device not found on channel " + String(i));
     }
   }
-  
+   */
+  timer = timerBegin(3, 80, true);
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer, 5000, true);
+  timerAlarmEnable(timer);
   M5.dis.drawpix(0, CRGB::Green);
 }
 
@@ -151,36 +142,43 @@ void loop() {
   //M5 update for button
   M5.update();
 
-  //read encoder value
-  encoder_count_median.add(encoder.getEncoderValue());
-  static float encoder_cont_last_value = 0;
-  encoder_count = encoder_count_median.getMedian();
-  encoder_count_filtered = encoder_count_ewma.filter(encoder_count);
+  if(flag_read_encoder){
+    //read encoder value
+    encoder_count = encoder.getEncoderValue();
+    encoder_count_median.add(encoder_count);
+    encoder_count_filtered = encoder_count_ewma.filter(encoder_count);
+    //compute speed
+    encoder_speed = compute_encoder_speed_2(encoder_count, micros());
+    //stream speed value
+    SerialBT.println("encoder_speed:"+String(encoder_speed));
+    flag_read_encoder = false;
+  }
+/*
+ //Stream encoder value if device connected to bluetooth
+  if(deviceConnected) {
+    Serial.println("encoder_speed");
+  }
+  //device not connecte4d, trying to connect
+  else {
+#ifdef USE_NAME
+    deviceConnected = SerialBT.connect(slaveName);
+    Serial.printf("Connecting to slave BT device named \"%s\"\n", slaveName.c_str());
+#else
+    deviceConnected = SerialBT.connect(address);
+    Serial.print("Connecting to slave BT device with MAC ");
+#endif
+    if (deviceConnected) {
+      Serial.println("Connected to slave BT device");
+    }
+    else {
+      while (!SerialBT.connected(10000)) {
+      Serial.println("Failed to connect. Make sure remote device is available and in range");
+      SerialBT.disconnect();
+      }
+    }
+  }
+  */
 
-  //compute encoder speed
-  encoder_speed = compute_encoder_speed_2(encoder_count_filtered, micros());
-
-  //check if client is connected
-  if (deviceConnected) {
-    //send data to client
-    //compute encoder speed
-    pCharacteristic->setValue((uint8_t*)&encoder_speed, 4); //4byte float
-    pCharacteristic->notify();
-    delay(5); // bluetooth stack will go into congestion, if too many packets are sent
-  }
-  //disconnecting
-  if (!deviceConnected && oldDeviceConnected) {
-    delay(500); // give the bluetooth stack the chance to get things ready
-    pServer->startAdvertising(); // restart advertising
-    Serial.println("start advertising");
-    oldDeviceConnected = deviceConnected;
-  }
-  //connecting
-  if (deviceConnected && !oldDeviceConnected) {
-    // do stuff here on connecting
-    oldDeviceConnected = deviceConnected;
-  }
-  
   //change parameters with buttons
   if(M5.Btn.wasPressed()){
     debug = !debug;
@@ -193,18 +191,6 @@ void loop() {
         M5.dis.drawpix(0, CRGB::Green);
     }
   }
-
-  /*float delta_count = encoder_count - encoder_cont_last_value;
-  encoder_cont_last_value = encoder_count;
-
-  //compute encoder speed every 3ms
-  static uint32_t last_time = 0;
-  uint32_t time = micros();
-  uint32_t delta_time = time - last_time;
-  if(time - last_time >= 3000) {
-    encoder_speed = compute_encoder_speed_2(delta_count,delta_time);
-    last_time = time;
-  }*/
 
   /*//Send Modbus request
   static uint32_t last_request = 0;
@@ -294,10 +280,10 @@ float compute_encoder_speed_2(float encoder_count,uint32_t time_us) {
   //compute deltas count and time
   int delta_c = encoder_count - last_encoder_count;
   uint32_t delta_t = time_us - last_time_us;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
+  //Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
   //compute speed
   float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
+  //Serial.println("encoder_speed: " + String(encoder_speed));
   //update last values
   last_encoder_count = encoder_count;
   last_time_us = time_us;
