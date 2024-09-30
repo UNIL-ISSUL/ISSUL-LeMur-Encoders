@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include <M5Atom.h>
-#include <ModbusRTUMaster.h>
 #include <Wire.h>
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
