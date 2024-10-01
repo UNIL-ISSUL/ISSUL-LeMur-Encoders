@@ -3,8 +3,8 @@
 #include <Wire.h>
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
-#include <BluetoothSerial.h>
 
+#include <BluetoothSerial.h>
 //check if bluetooth is available
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
@@ -17,8 +17,8 @@
 //create bluetooth object
 BluetoothSerial SerialBT;
 String myName = "LeMur streaming";
-const char* pin="1234";
-bool deviceConnected = false;
+//const char* pin="1234";
+//bool deviceConnected = false;
 
 //define Union to store transmitted information over bluetooth
 union {
@@ -33,8 +33,8 @@ union {
 
 //i2c wire communication
 #define I2C_FREQ 400000UL
-#define SDA 21
-#define SCL 22
+#define SDA 25
+#define SCL 21
 
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
@@ -49,6 +49,7 @@ float compute_encoder_speed_2(float encoder_count,uint32_t time_us);
 //two encoders on the i2c multiplexer at address 0x70
 //one ADC directly connected to the i2c bus
 TCA9548 i2cMultiplexer(0x70);
+byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
 
@@ -73,6 +74,8 @@ uint32_t readEncoder(bool mm=false) {
 } 
 
 uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
+  if (max_channel=0) return 0; //no encoder connected
+  if (channel >= max_channel) return 0; //channel not available
   multiplexer->selectChannel(channel);
   if(mm)  return encoders[channel].getMeterValue();
   else    return encoders[channel].getEncoderValue();
@@ -88,15 +91,17 @@ void IRAM_ATTR onTimer(){
 }
 
 void setup() {
+  
   //initialize the M5Atom
   M5.begin(true, true, true); // enable serial, enable I2C, enable display (led)
   Serial.println("M5Atom initialized");
-
+  
   //Bluetooth classic as slave
   SerialBT.begin(myName, false);
-  Serial.printf("The device \"%s\" started in slave mode");
+  Serial.println("The device \"%s\" started in slave mode");
 
   //I2C communication
+  //Wire.begin(SDA, SCL);
   Wire.setClock(I2C_FREQ);  //update clock
 
   //initialize I2C multiplexer
@@ -122,6 +127,8 @@ void setup() {
       }
       else{
         Serial.println("Encoder initialization failed");
+        //decrease max channel
+        max_channel -= 1;
       }
     }
     else{
@@ -130,12 +137,20 @@ void setup() {
   }
 
   //initialize ADC device
-  //send configuration to ADC
-  const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
+
+  //test if ADC is connected
   Wire.beginTransmission(ADC_ADDR);
-  Wire.write(0x84); // config register
-  Wire.endTransmission();
-  Serial.println("ADC initialized");
+  uint8_t error = Wire.endTransmission();
+  if (error == 0) {
+    Serial.println("ADC device found");
+    //send configuration to ADC
+    const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
+    Wire.beginTransmission(ADC_ADDR);
+    Wire.write(0x84); // config register
+    Wire.endTransmission();
+    Serial.println("ADC initialized");
+    }
+  else Serial.println("ADC device not found");
   
   //initialize timer to interupt @ 5ms
   timer = timerBegin(3, 80, true);
@@ -147,20 +162,20 @@ void setup() {
   packet.belt_encoder_speed = 0;
   packet.steps_encoder_speed = 0;
   packet.inclinaison = 0;
-
   //initialize display
   M5.dis.drawpix(0, CRGB::Green);
 }
 
 bool debug = false;
 
-uint32_t belt_encoder_count;
-uint32_t steps_encoder_count;
+uint32_t belt_encoder_count = 0;
+uint32_t steps_encoder_count = 0;
 
 void loop() {
+  
   //M5 update for button
   M5.update();
-
+  
   if(flag_read_encoder){
     //read encoder value
     belt_encoder_count = readEncoder(0, &i2cMultiplexer);
@@ -176,20 +191,29 @@ void loop() {
     packet.steps_encoder_speed = round(100*steps_encoder_speed*perimeter[1]/pulse[1]);  // mm/s x100 rounded to uint16
     //mesure inclinaison
     packet.inclinaison = round(100.0 * inclinaison * 90 / pow(2, 14));                  // 0-90° x100 rounded to uint16
+    //packet.belt_encoder_speed = 'a'<<8 | 'a';
+    //packet.steps_encoder_speed = 'b'<<8 | 'b';
+    //packet.inclinaison = 'c'<<8 | 'c';
     //stream speed value
     SerialBT.write(packet.bytes, 7);
+    //print bytes
+    /*for (int i = 0; i < 7; i++) {
+      Serial.print(char(packet.bytes[i]));
+    }*/
     //SerialBT.println(String(encoder_speed));
     flag_read_encoder = false;
   }
-
+ 
   //change parameters with buttons
   if(M5.Btn.wasPressed()){
     debug = !debug;
     if(debug){
         M5.dis.drawpix(0, CRGB::Orange);
         Serial.println("Debug mode enabled");
-        encoders[0].resetEncoder();
-        encoders[1].resetEncoder();
+        for(int i = 0; i < max_channel; i++){
+          i2cMultiplexer.selectChannel(i);
+          encoders[i].resetEncoder();
+        }
     }
     else{
         M5.dis.drawpix(0, CRGB::Green);
