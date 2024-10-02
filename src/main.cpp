@@ -39,7 +39,7 @@ union {
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
 //encoder configuration
-uint32_t pulse[2] = {360,16000};
+uint32_t pulse[2] = {380,16000};
 float perimeter[2] = {60.0*PI,123.0*PI}; //mm
 //speed computation function
 float compute_encoder_speed(uint32_t delta_count,uint32_t delta_time);
@@ -53,10 +53,12 @@ byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
 
-uint16_t readADC() {
+float readADC() {
   int length = 2;
   Wire.requestFrom(ADC_ADDR, length);
-  return (int16_t)((Wire.read() << 8) | Wire.read());
+  int16_t raw = (Wire.read() << 8) | Wire.read() ;
+  //Serial.println("raw adc : "+String(raw));
+  return raw*12457.0/8192; //max scale is 12457mV and max output 8192
 }
 
 /*uint32_t readEncoder(bool mm=false) {
@@ -191,7 +193,7 @@ void loop() {
     last_steps_encoder_count = steps_encoder_count;
     last_time_us = time_us;
     //read adc value
-    uint16_t inclinaison= readADC();  
+    float inclinaison= readADC();  
 
     //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count) + " inclinaison: " + String(inclinaison));
     //Serial.println("belt_encoder_speed: " + String(belt_encoder_speed) + " steps_encoder_speed: " + String(steps_encoder_speed));
@@ -199,7 +201,7 @@ void loop() {
     //update packet
     packet.belt_encoder_speed   = (uint16_t)round(100.0*belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s x100 rounded to uint16
     packet.steps_encoder_speed  = (uint16_t)round(100.0*steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s x100 rounded to uint16
-    packet.inclinaison          = (uint16_t)round((float)inclinaison * 90000 / pow(2, 14));             // 0-100° x100 rounded to uint16
+    packet.inclinaison          = (uint16_t)round((float)inclinaison * 9000 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
@@ -214,6 +216,7 @@ void loop() {
       Serial.println();
       Serial.print("packet data : ");
       Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
+      //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count) + " inclinaison: " + String(inclinaison));
     }
     //SerialBT.println(String(encoder_speed));
     flag_read_encoder = false;
