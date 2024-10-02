@@ -38,12 +38,12 @@ union {
 
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
-  //encoder configuration
-  uint32_t pulse[2] = {8000,16000};
-  uint32_t perimeter[2] = {80,123};
+//encoder configuration
+uint32_t pulse[2] = {360,16000};
+float perimeter[2] = {60.0*PI,123.0*PI}; //mm
 //speed computation function
-float compute_encoder_speed();
-float compute_encoder_speed_2(float encoder_count,uint32_t time_us);
+float compute_encoder_speed(uint32_t delta_count,uint32_t delta_time);
+float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
 
 //i2c multiplexer communication
 //two encoders on the i2c multiplexer at address 0x70
@@ -53,17 +53,13 @@ byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
 
-uint16_t readADC(uint8_t channel, TCA9548 *multiplexer) {
-  multiplexer->selectChannel(channel);
-  Wire.requestFrom(ADC_ADDR, (uint8_t)2);
-  return (int16_t)((Wire.read() << 8) | Wire.read());
-}
 uint16_t readADC() {
-  Wire.requestFrom(ADC_ADDR, (uint8_t)2);
+  int length = 2;
+  Wire.requestFrom(ADC_ADDR, length);
   return (int16_t)((Wire.read() << 8) | Wire.read());
 }
 
-uint32_t readEncoder(bool mm=false) {
+/*uint32_t readEncoder(bool mm=false) {
   int register_address = 0x00; // pulse value
   if(mm) register_address = 0x10; // meter value
   Wire.beginTransmission(ENC_ADDR);
@@ -71,11 +67,13 @@ uint32_t readEncoder(bool mm=false) {
   Wire.endTransmission(true);
   Wire.requestFrom(UNIT_EXT_ENCODER_ADDR, (uint8_t)4);
   return (int32_t)((Wire.read() << 24) | (Wire.read() << 16) | (Wire.read() << 8) | Wire.read());
-} 
+}*/
 
 uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
-  if (max_channel=0) return 0; //no encoder connected
-  if (channel >= max_channel) return 0; //channel not available
+  if (channel >= max_channel) {
+    Serial.println("No encoder on requested channel : " + String(channel));
+    return 0; //channel not available
+  }
   multiplexer->selectChannel(channel);
   if(mm)  return encoders[channel].getMeterValue();
   else    return encoders[channel].getEncoderValue();
@@ -98,7 +96,8 @@ void setup() {
   
   //Bluetooth classic as slave
   SerialBT.begin(myName, false);
-  Serial.println("The device \"%s\" started in slave mode");
+  //Serial.println(ESP.getEfuseMac());
+  Serial.printf("The device \"%s\" started in slave mode /n", myName.c_str());
 
   //I2C communication
   //Wire.begin(SDA, SCL);
@@ -113,7 +112,7 @@ void setup() {
   }
 
   //search and configure encoders
-  for(int i = 0; i < 2; i++){
+  for(int i = 0; i < max_channel; i++){
     i2cMultiplexer.selectChannel(i);
     bool connected = i2cMultiplexer.isConnected(ENC_ADDR);
     if(connected){
@@ -127,12 +126,12 @@ void setup() {
       }
       else{
         Serial.println("Encoder initialization failed");
-        //decrease max channel
-        max_channel -= 1;
       }
     }
     else{
       Serial.println("Encoder device not found on channel " + String(i));
+      //decrease max channel
+      max_channel -= 1;
     }
   }
 
@@ -155,7 +154,7 @@ void setup() {
   //initialize timer to interupt @ 5ms
   timer = timerBegin(3, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 5000, true);
+  timerAlarmWrite(timer, 500000, true);
   timerAlarmEnable(timer);
 
   //initialize packet
@@ -170,6 +169,10 @@ bool debug = false;
 
 uint32_t belt_encoder_count = 0;
 uint32_t steps_encoder_count = 0;
+uint32_t last_belt_encoder_count = 0;
+uint32_t last_steps_encoder_count = 0;
+uint32_t time_us = 0;
+uint32_t last_time_us = 0;
 
 void loop() {
   
@@ -180,26 +183,38 @@ void loop() {
     //read encoder value
     belt_encoder_count = readEncoder(0, &i2cMultiplexer);
     steps_encoder_count = readEncoder(1, &i2cMultiplexer);
+    time_us = micros();
     //compute speed en pluse/sec
-    static float belt_encoder_speed = compute_encoder_speed_2(belt_encoder_count, micros());
-    static float steps_encoder_speed = compute_encoder_speed_2(steps_encoder_count, micros());
+    float belt_encoder_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
+    float steps_encoder_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
+    last_belt_encoder_count = belt_encoder_count;
+    last_steps_encoder_count = steps_encoder_count;
+    last_time_us = time_us;
     //read adc value
-    static uint16_t inclinaison = readADC();  
+    uint16_t inclinaison= readADC();  
+
+    //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count) + " inclinaison: " + String(inclinaison));
+    //Serial.println("belt_encoder_speed: " + String(belt_encoder_speed) + " steps_encoder_speed: " + String(steps_encoder_speed));
     
     //update packet
-    packet.belt_encoder_speed = round(100*belt_encoder_speed*perimeter[0]/pulse[0]);    // mm/s x100 rounded to uint16
-    packet.steps_encoder_speed = round(100*steps_encoder_speed*perimeter[1]/pulse[1]);  // mm/s x100 rounded to uint16
-    //mesure inclinaison
-    packet.inclinaison = round(100.0 * inclinaison * 90 / pow(2, 14));                  // 0-90° x100 rounded to uint16
+    packet.belt_encoder_speed   = (uint16_t)round(100.0*belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s x100 rounded to uint16
+    packet.steps_encoder_speed  = (uint16_t)round(100.0*steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s x100 rounded to uint16
+    packet.inclinaison          = (uint16_t)round((float)inclinaison * 90000 / pow(2, 14));             // 0-100° x100 rounded to uint16
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
     //stream speed value
     SerialBT.write(packet.bytes, 7);
     //print bytes
-    /*for (int i = 0; i < 7; i++) {
-      Serial.print(char(packet.bytes[i]));
-    }*/
+    if(debug) {
+      Serial.print("raw packet: ");
+      for (int i = 0; i < 7; i++) {
+        Serial.print(packet.bytes[i], HEX);
+      }
+      Serial.println();
+      Serial.print("packet data : ");
+      Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
+    }
     //SerialBT.println(String(encoder_speed));
     flag_read_encoder = false;
   }
@@ -300,14 +315,14 @@ void loop() {
 }
 
 
-float compute_encoder_speed_2(float encoder_count,uint32_t time_us) {
+float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us) {
   //define last values 
   static uint32_t last_time_us = 0;
-  static long last_encoder_count = 0;
+  static uint32_t last_encoder_count = 0;
   //compute deltas
   //compute deltas count and time
-  int delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time_us - last_time_us;
+  int32_t   delta_c = encoder_count - last_encoder_count;
+  uint32_t  delta_t = time_us - last_time_us;
   //Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
   //compute speed
   float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
@@ -319,24 +334,10 @@ float compute_encoder_speed_2(float encoder_count,uint32_t time_us) {
   return encoder_speed;
 }
 
-float compute_encoder_speed(int channel) {
-  //define last values 
-  static uint32_t last_time_us = 0;
-  static long last_encoder_count = 0;
-  //compute deltas
-  //read encoder value
-  uint32_t encoder_count = encoders[channel].getEncoderValue();
-  uint32_t time_us = micros();
-  //compute deltas count and time
-  int delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time_us - last_time_us;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
+float compute_encoder_speed(uint32_t delta_count,uint32_t delta_time) {
+  //Serial.println("delta_count: " + String(delta_count) + " delta_time: " + String(delta_time));
   //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time_us = time_us;
-  //retunr speed pulses per second
+  float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
+  //return speed pulses per second
   return encoder_speed;
 }
