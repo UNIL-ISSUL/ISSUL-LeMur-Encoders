@@ -22,10 +22,10 @@ String myName = "LeMur streaming";
 
 //define Union to store transmitted information over bluetooth
 union {
-  byte bytes[7];
+  byte bytes[11];
   struct {
-    uint16_t belt_encoder_speed ;
-    uint16_t steps_encoder_speed ;
+    uint32_t belt_encoder_speed ;
+    uint32_t steps_encoder_speed ;
     uint16_t inclinaison ;
     byte stopbyte = 0x0A; //0x0A is line feed, //0x0D is carriage return
   };
@@ -39,8 +39,8 @@ union {
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
 //encoder configuration
-uint32_t pulse[2] = {380,16000};
-float perimeter[2] = {60.0*PI,123.0*PI}; //mm
+uint32_t pulse[2] = {13245*2,16384*2};
+float perimeter[2] = {100.0*PI,123.7*PI}; //mm
 //speed computation function
 float compute_encoder_speed(uint32_t delta_count,uint32_t delta_time);
 float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
@@ -52,13 +52,14 @@ TCA9548 i2cMultiplexer(0x70);
 byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
+#define UPDATE_PERIOD_US 5000 //5ms
 
 float readADC() {
   int length = 2;
   Wire.requestFrom(ADC_ADDR, length);
   int16_t raw = (Wire.read() << 8) | Wire.read() ;
   //Serial.println("raw adc : "+String(raw));
-  return raw*12457.0/8192; //max scale is 12457mV and max output 8192
+  return raw*12440.0/8192; //max scale is 12450mV and max output 8192
 }
 
 /*uint32_t readEncoder(bool mm=false) {
@@ -156,7 +157,7 @@ void setup() {
   //initialize timer to interupt @ 5ms
   timer = timerBegin(3, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 500000, true);
+  timerAlarmWrite(timer, UPDATE_PERIOD_US, true);
   timerAlarmEnable(timer);
 
   //initialize packet
@@ -195,28 +196,28 @@ void loop() {
     //read adc value
     float inclinaison= readADC();  
 
-    //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count) + " inclinaison: " + String(inclinaison));
-    //Serial.println("belt_encoder_speed: " + String(belt_encoder_speed) + " steps_encoder_speed: " + String(steps_encoder_speed));
-    
+    //Serial.println("belt_encoder_speed: " + String(round(100.0*belt_encoder_speed*perimeter[0]/pulse[0])) + " steps_encoder_speed: " + String(steps_encoder_speed));
+
     //update packet
-    packet.belt_encoder_speed   = (uint16_t)round(100.0*belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s x100 rounded to uint16
-    packet.steps_encoder_speed  = (uint16_t)round(100.0*steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s x100 rounded to uint16
+    packet.belt_encoder_speed   = (uint32_t)round(100.0*belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s x100 rounded to uint16
+    packet.steps_encoder_speed  = (uint32_t)round(100.0*steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s x100 rounded to uint16
     packet.inclinaison          = (uint16_t)round((float)inclinaison * 9000 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
     //stream speed value
-    SerialBT.write(packet.bytes, 7);
+    SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //print bytes
     if(debug) {
       Serial.print("raw packet: ");
-      for (int i = 0; i < 7; i++) {
+      for (int i = 0; i < sizeof(packet.bytes); i++) {
+        if(i == 4 || i == 8 || i==10) Serial.print(" | ");
         Serial.print(packet.bytes[i], HEX);
       }
-      Serial.println();
-      Serial.print("packet data : ");
+      Serial.print(" // packet data : ");
       Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
-      //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count) + " inclinaison: " + String(inclinaison));
+      Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
+      Serial.println("");
     }
     //SerialBT.println(String(encoder_speed));
     flag_read_encoder = false;
@@ -338,9 +339,12 @@ float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us) {
 }
 
 float compute_encoder_speed(uint32_t delta_count,uint32_t delta_time) {
-  //Serial.println("delta_count: " + String(delta_count) + " delta_time: " + String(delta_time));
   //compute speed
   float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
+  if(debug){
+    Serial.println("delta_pulses: " + String(delta_count) + " delta_time: " + String(delta_time));
+    Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
+  }
   //return speed pulses per second
   return encoder_speed;
 }
