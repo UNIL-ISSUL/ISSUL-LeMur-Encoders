@@ -23,7 +23,7 @@ String myName = "LeMur streaming";
 
 //define Union to store transmitted information over bluetooth
 union {
-  byte bytes[11];
+  byte bytes[7];
   struct {
     uint16_t belt_encoder_speed ;
     uint16_t steps_encoder_speed ;
@@ -43,8 +43,8 @@ UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
 uint32_t pulse[2] = {13245*2,16384*2};
 float perimeter[2] = {100.0*PI,123.7*PI}; //mm
 //speed computation function
-float compute_encoder_speed(float delta_count,uint32_t delta_time);
-float compute_encoder_speed_2(float encoder_count,uint32_t time_us);
+float compute_encoder_speed(int32_t delta_count,uint32_t delta_time);
+float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
 
 //i2c multiplexer communication
 //two encoders on the i2c multiplexer at address 0x70
@@ -56,9 +56,9 @@ byte max_channel = 2;
 #define UPDATE_PERIOD_US 5000 //5ms
 
 //running median filter
-RunningMedian belt_encoder_count_median = RunningMedian(3);
-RunningMedian steps_encoder_count_median = RunningMedian(3);
-RunningMedian inclinaison_median = RunningMedian(5);  
+RunningMedian belt_encoder_speed_median = RunningMedian(6);
+RunningMedian steps_encoder_speed_median = RunningMedian(6);
+RunningMedian inclinaison_median = RunningMedian(10);  
 
 float readADC() {
   int length = 2;
@@ -176,10 +176,10 @@ void setup() {
 
 bool debug = false;
 
-float belt_encoder_count = 0;
-float steps_encoder_count = 0;
-float last_belt_encoder_count = 0;
-float last_steps_encoder_count = 0;
+uint32_t belt_encoder_count = 0;
+uint32_t steps_encoder_count = 0;
+uint32_t last_belt_encoder_count = 0;
+uint32_t last_steps_encoder_count = 0;
 uint32_t time_us = 0;
 uint32_t last_time_us = 0;
 
@@ -190,27 +190,29 @@ void loop() {
   
   if(flag_read_encoder){
     //read encoder value
-    belt_encoder_count_median.add(readEncoder(0, &i2cMultiplexer));
-    steps_encoder_count_median.add(readEncoder(1, &i2cMultiplexer));
-    belt_encoder_count = belt_encoder_count_median.getMedian();
-    steps_encoder_count = steps_encoder_count_median.getMedian();
+    belt_encoder_count = readEncoder(0, &i2cMultiplexer);
+    steps_encoder_count = readEncoder(1, &i2cMultiplexer);
     time_us = micros();
     //compute speed en pluse/sec
-    float belt_encoder_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
-    float steps_encoder_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
+    belt_encoder_speed_median.add(compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us));
+    steps_encoder_speed_median.add(compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us));
+    float belt_encoder_speed = belt_encoder_speed_median.getMedian();
+    float steps_encoder_speed = steps_encoder_speed_median.getMedian();
+    //float belt_encoder_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
+    //float steps_encoder_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
     last_belt_encoder_count = belt_encoder_count;
     last_steps_encoder_count = steps_encoder_count;
     last_time_us = time_us;
     //read adc value
     inclinaison_median.add(readADC());
-    float inclinaison= inclinaison_median.getMedian();  
+    uint32_t inclinaison= round(inclinaison_median.getMedian()*100);  
 
     //Serial.println("belt_encoder_speed: " + String(round(100.0*belt_encoder_speed*perimeter[0]/pulse[0])) + " steps_encoder_speed: " + String(steps_encoder_speed));
 
     //update packet
     packet.belt_encoder_speed   = (uint16_t)round(belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s  rounded to uint16
     packet.steps_encoder_speed  = (uint16_t)round(steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s rounded to uint16
-    packet.inclinaison          = (uint16_t)round((float)inclinaison * 9000 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
+    packet.inclinaison          = (uint16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
@@ -220,7 +222,7 @@ void loop() {
     if(debug) {
       Serial.print("raw packet: ");
       for (int i = 0; i < sizeof(packet.bytes); i++) {
-        if(i == 4 || i == 8 || i==10) Serial.print(" | ");
+        if(i == 2 || i == 4 || i==6) Serial.print(" | ");
         Serial.print(packet.bytes[i], HEX);
       }
       Serial.print(" // packet data : ");
@@ -347,9 +349,9 @@ float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us) {
   return encoder_speed;
 }
 
-float compute_encoder_speed(float delta_count,uint32_t delta_time) {
+float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
   //compute speed
-  float encoder_speed = delta_count / delta_time; //impulsions per second
+  float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
   if(debug){
     Serial.println("delta_pulses: " + String(delta_count) + " delta_time: " + String(delta_time));
     Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
