@@ -25,9 +25,9 @@ String myName = "LeMur streaming";
 union {
   byte bytes[7];
   struct {
-    uint16_t belt_encoder_speed ;
-    uint16_t steps_encoder_speed ;
-    uint16_t inclinaison ;
+    int16_t belt_encoder_speed ;
+    int16_t steps_encoder_speed ;
+    int16_t inclinaison ;
     byte stopbyte = 0x0A; //0x0A is line feed, //0x0D is carriage return
   };
 } packet;
@@ -210,9 +210,9 @@ void loop() {
     //Serial.println("belt_encoder_speed: " + String(round(100.0*belt_encoder_speed*perimeter[0]/pulse[0])) + " steps_encoder_speed: " + String(steps_encoder_speed));
 
     //update packet
-    packet.belt_encoder_speed   = (uint16_t)round(belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s  rounded to uint16
-    packet.steps_encoder_speed  = (uint16_t)round(steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s rounded to uint16
-    packet.inclinaison          = (uint16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
+    packet.belt_encoder_speed   = (int16_t)round(belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s  rounded to uint16
+    packet.steps_encoder_speed  = (int16_t)round(steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s rounded to uint16
+    packet.inclinaison          = (int16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
