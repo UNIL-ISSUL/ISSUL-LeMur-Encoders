@@ -4,6 +4,7 @@
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
+#include <DFRobot_GP8XXX.h>
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -54,6 +55,10 @@ byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
 #define UPDATE_PERIOD_US 5000 //5ms
+#define DAC_ADDR 0x58 //DAC address GP8413
+
+//define DAC object
+DFRobot_GP8413 GP8413(DAC_ADDR);
 
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(6);
@@ -95,6 +100,15 @@ bool flag_read_encoder = false;
 //ISR function
 void IRAM_ATTR onTimer(){
   flag_read_encoder = true;
+}
+
+//function to scale encoder speed to 0-10V output
+uint16_t scale_encoder_speed(float encoder_speed_mm_s) {
+  const uint16_t max_voltage = 10000; //10V
+  const float max_speed_mm_s = 40*1e6 / 3600; //40km/h
+  float speed_mv = max_voltage * encoder_speed_mm_s / max_speed_mm_s;
+  //return ouput scaled on 15bits
+  return uint16_t(32767 * speed_mv / max_voltage);
 }
 
 void setup() {
@@ -159,6 +173,26 @@ void setup() {
     Serial.println("ADC initialized");
     }
   else Serial.println("ADC device not found");
+
+  //initialize DAC device
+  while(GP8413.begin()!=0){
+    Serial.println("Communication with the device has encountered a failure. Please verify the integrity of the connection or ensure that the device address is properly configured.");
+    delay(1000);
+  }
+  Serial.println("GP8413 initialized");
+  //set DAC output range to 0-10V
+  GP8413.setDACOutRange(GP8413.eOutputRange10V);
+
+  /**
+   * @brief. Configuring different channel outputs for DAC values
+   * @param data. Data values corresponding to voltage values
+   * @n （0 - 32767）.This module is a 15-bit precision DAC module, hence the values ranging from 0 to 32767 correspond to voltages of 0-5V or 0-10V respectively. The specific voltage range depends on the selection of the module's voltage fluctuation switch.
+   * @param channel. Output channels
+   * @n  0:channel 0
+   * @n  1:channel 1
+   * @n  2:All channels
+   */
+  GP8413.setDACOutVoltage(0,0);//channel 0 output 0
   
   //initialize timer to interupt @ 5ms
   timer = timerBegin(3, 80, true);
@@ -218,6 +252,9 @@ void loop() {
     //packet.inclinaison = 'c'<<8 | 'c';
     //stream speed value
     SerialBT.write(packet.bytes, sizeof(packet.bytes));
+    //update DAC output
+    Serial.println("belt_encoder_speed: " + String(packet.belt_encoder_speed) + " converted: " + String(scale_encoder_speed(packet.belt_encoder_speed)));
+    GP8413.setDACOutVoltage(scale_encoder_speed(packet.belt_encoder_speed),0);
     //print bytes
     if(debug) {
       Serial.print("raw packet: ");
