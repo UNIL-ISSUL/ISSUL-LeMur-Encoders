@@ -5,6 +5,7 @@
 #include "TCA9548.h"
 #include <RunningMedian.h>
 #include <DFRobot_GP8XXX.h>
+#include <ModbusRTUSlave.h>
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -63,7 +64,15 @@ DFRobot_GP8413 GP8413(DAC_ADDR);
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(6);
 RunningMedian steps_encoder_speed_median = RunningMedian(6);
-RunningMedian inclinaison_median = RunningMedian(10);  
+RunningMedian inclinaison_median = RunningMedian(10); 
+
+//modbus communication
+unsigned long baudrate = 115200UL;
+#define RX 33
+#define TX 23
+ModbusRTUSlave slave(Serial2,0x03); //modbus slave on serial2, addr to be checked
+#define NUM_COILS 1
+bool coils[NUM_COILS] = {false};
 
 float readADC() {
   int length = 2;
@@ -116,6 +125,12 @@ void setup() {
   //initialize the M5Atom
   M5.begin(true, true, true); // enable serial, enable I2C, enable display (led)
   Serial.println("M5Atom initialized");
+
+  //initialize the modbus communication
+  Serial2.begin(baudrate, SERIAL_8E1, RX, TX);
+  slave.begin(baudrate);
+  //associate coils
+  slave.setCoils(coils, NUM_COILS);
   
   //Bluetooth classic as slave
   SerialBT.begin(myName, false);
@@ -253,8 +268,12 @@ void loop() {
     //stream speed value
     SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //update DAC output
-    Serial.println("belt_encoder_speed: " + String(packet.belt_encoder_speed) + " converted: " + String(scale_encoder_speed(packet.belt_encoder_speed)));
-    GP8413.setDACOutVoltage(scale_encoder_speed(packet.belt_encoder_speed),0);
+    uint16_t dac_value = 0;
+    //if coil 0 is set to 1, the steps are used else this the belt
+    if(!coils[0]) dac_value = packet.belt_encoder_speed;  
+    else dac_value = packet.steps_encoder_speed;
+    GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
+
     //print bytes
     if(debug) {
       Serial.print("raw packet: ");
@@ -269,6 +288,15 @@ void loop() {
     }
     //SerialBT.println(String(encoder_speed));
     flag_read_encoder = false;
+  }
+  //if encoder are not updated read modbus coils
+  else {
+    slave.update();
+    static bool last_coil = false;
+    if(coils[0] != last_coil){
+      last_coil = coils[0];
+      Serial.println("Coil 0 changed to " + String(coils[0]));
+    }
   }
  
   //change parameters with buttons
