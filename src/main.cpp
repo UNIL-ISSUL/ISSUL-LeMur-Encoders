@@ -4,6 +4,7 @@
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
+#include <EWMA.h>
 #include <DFRobot_GP8XXX.h>
 #include <ModbusRTUSlave.h>
 
@@ -46,7 +47,6 @@ uint32_t pulse[2] = {10000*2,10000*2};  // belt and steps encoder pulse per revo
 float perimeter[2] = {100.0*PI,126.7*PI}; // belt roller and steps pulley diameter 123.7 mm
 //speed computation function
 float compute_encoder_speed(int32_t delta_count,uint32_t delta_time);
-float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
 
 //i2c multiplexer communication
 //two encoders on the i2c multiplexer at address 0x70
@@ -55,15 +55,21 @@ TCA9548 i2cMultiplexer(0x70);
 byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
+// The period at which encoders are read and speed is updated, in microseconds.
+// A smaller value increases responsiveness but reduces accuracy at low speeds
+// due to lower pulse counts per period. A larger value improves low-speed
+// accuracy at the cost of slower updates.
 #define UPDATE_PERIOD_US 5000 //5ms
 #define DAC_ADDR 0x58 //DAC address GP8413
 
 //define DAC object
 DFRobot_GP8413 GP8413(DAC_ADDR);
 
-//running median filter
-RunningMedian belt_encoder_speed_median = RunningMedian(6);
-RunningMedian steps_encoder_speed_median = RunningMedian(6);
+// Exponentially Weighted Moving Average (EWMA) filter for smoothing speed data.
+// A smaller alpha value (e.g., 0.1) results in more smoothing but slower response to changes.
+// A larger alpha value (e.g., 0.5) results in less smoothing but faster response.
+EWMA belt_encoder_speed_filter(0.1);
+EWMA steps_encoder_speed_filter(0.1);
 RunningMedian inclinaison_median = RunningMedian(10); 
 
 //modbus communication
@@ -247,12 +253,10 @@ void loop() {
     steps_encoder_count = readEncoder(1, &i2cMultiplexer);
     time_us = micros();
     //compute speed en pluse/sec
-    belt_encoder_speed_median.add(compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us));
-    steps_encoder_speed_median.add(compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us));
-    float belt_encoder_speed = belt_encoder_speed_median.getMedian();
-    float steps_encoder_speed = steps_encoder_speed_median.getMedian();
-    //float belt_encoder_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
-    //float steps_encoder_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
+    float raw_belt_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
+    float belt_encoder_speed = belt_encoder_speed_filter.filter(raw_belt_speed);
+    float raw_steps_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
+    float steps_encoder_speed = steps_encoder_speed_filter.filter(raw_steps_speed);
     last_belt_encoder_count = belt_encoder_count;
     last_steps_encoder_count = steps_encoder_count;
     last_time_us = time_us;
@@ -429,26 +433,15 @@ void loop() {
 }
 
 
-float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us) {
-  //define last values 
-  static uint32_t last_time_us = 0;
-  static uint32_t last_encoder_count = 0;
-  //compute deltas
-  //compute deltas count and time
-  int32_t   delta_c = encoder_count - last_encoder_count;
-  uint32_t  delta_t = time_us - last_time_us;
-  //Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
-  //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  //Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time_us = time_us;
-  //retunr speed pulses per second
-  return encoder_speed;
-}
-
+// Computes speed in pulses per second from the number of pulses counted over a given time.
+// Note: This method is based on measuring pulse frequency. It works well for medium to high speeds.
+// At very low speeds, the resolution is limited as delta_count may be very small (e.g., 0 or 1),
+// leading to quantization noise.
 float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
+  // Avoid division by zero if delta_time is 0
+  if (delta_time == 0) {
+    return 0.0;
+  }
   //compute speed
   float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
   if(debug){
