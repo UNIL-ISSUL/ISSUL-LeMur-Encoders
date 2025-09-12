@@ -42,8 +42,8 @@ union {
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
 //encoder configuration
-uint32_t pulse[2] = {13245*2,16384*2};
-float perimeter[2] = {100.0*PI,123.7*PI}; //mm
+uint32_t pulse[2] = {10000*2,10000*2};  // belt and steps encoder pulse per revolution
+float perimeter[2] = {100.0*PI,126.7*PI}; // belt roller and steps pulley diameter 123.7 mm
 //speed computation function
 float compute_encoder_speed(int32_t delta_count,uint32_t delta_time);
 float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
@@ -67,12 +67,14 @@ RunningMedian steps_encoder_speed_median = RunningMedian(6);
 RunningMedian inclinaison_median = RunningMedian(10); 
 
 //modbus communication
-unsigned long baudrate = 115200UL;
+unsigned long baudrate = 19200UL;
 #define RX 33
 #define TX 23
-ModbusRTUSlave slave(Serial2,0x03); //modbus slave on serial2, addr to be checked
-#define NUM_COILS 1
-bool coils[NUM_COILS] = {false};
+ModbusRTUSlave slave(Serial2,3); //modbus slave on serial2, addr to be checked
+#define NUM_COILS 2 //number of coils
+#define NUM_REGISTERS 1 //number of holding registers
+bool coils[NUM_COILS] = {false,false};  //first coil is for steps status and second if for encoder_feedback status
+uint16_t registers[NUM_REGISTERS] = {0}; //belt ot steps encoder speed in mm/s
 
 float readADC() {
   int length = 2;
@@ -131,45 +133,45 @@ void setup() {
   slave.begin(baudrate);
   //associate coils
   slave.setCoils(coils, NUM_COILS);
+  slave.setHoldingRegisters(registers,1); //set holding register to store current feedback speed
   
   //Bluetooth classic as slave
   SerialBT.begin(myName, false);
   //Serial.println(ESP.getEfuseMac());
-  Serial.printf("The device \"%s\" started in slave mode /n", myName.c_str());
+  Serial.printf("The device \"%s\" started in slave mode \n", myName.c_str());
 
   //I2C communication
   //Wire.begin(SDA, SCL);
   Wire.setClock(I2C_FREQ);  //update clock
-
+  uint8_t i2c_error = 0;
   //initialize I2C multiplexer
   if(i2cMultiplexer.begin()){
     Serial.println("I2C Multiplexer initialized");
   }
   else{
     Serial.println("I2C Multiplexer initialization failed");
-  }
+    i2c_error += 1;
 
+  }
   //search and configure encoders
   for(int i = 0; i < max_channel; i++){
     i2cMultiplexer.selectChannel(i);
     bool connected = i2cMultiplexer.isConnected(ENC_ADDR);
+    
     if(connected){
       Serial.println("Encoder device found on channel " + String(i));
       //send configuration to encoder
-      if (encoders[i].begin(&Wire, ENC_ADDR, SDA, SCL, I2C_FREQ)) {
-        encoders[i].setPulse(pulse[i]);
-        encoders[i].setPerimeter(perimeter[i]);
-        encoders[i].resetEncoder();
-        Serial.println("Encoder initialized");
-      }
-      else{
-        Serial.println("Encoder initialization failed");
-      }
+      encoders[i].begin(&Wire, ENC_ADDR, SDA, SCL, I2C_FREQ);
+      //encoders[i].setPulse(pulse[i]);
+      //encoders[i].setPerimeter(perimeter[i]);
+      //encoders[i].resetEncoder();
+      Serial.println("Encoder initialized");
     }
     else{
       Serial.println("Encoder device not found on channel " + String(i));
+      i2c_error += 1;
       //decrease max channel
-      max_channel -= 1;
+      //max_channel -= 1;
     }
   }
 
@@ -177,8 +179,7 @@ void setup() {
 
   //test if ADC is connected
   Wire.beginTransmission(ADC_ADDR);
-  uint8_t error = Wire.endTransmission();
-  if (error == 0) {
+  if (Wire.endTransmission()== 0) {
     Serial.println("ADC device found");
     //send configuration to ADC
     const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
@@ -187,27 +188,30 @@ void setup() {
     Wire.endTransmission();
     Serial.println("ADC initialized");
     }
-  else Serial.println("ADC device not found");
+  else {
+    Serial.println("ADC device not found");
+    i2c_error += 1;
+  }
 
   //initialize DAC device
-  while(GP8413.begin()!=0){
-    Serial.println("Communication with the device has encountered a failure. Please verify the integrity of the connection or ensure that the device address is properly configured.");
-    delay(1000);
+  if (GP8413.begin() == 0) {
+    Serial.println("GP8413 initialized");
   }
-  Serial.println("GP8413 initialized");
+  else {
+    //if DAC is not found, print error code
+    Serial.println("DAC device not found");
+    i2c_error += 1;
+  }
   //set DAC output range to 0-10V
   GP8413.setDACOutRange(GP8413.eOutputRange10V);
-
-  /**
-   * @brief. Configuring different channel outputs for DAC values
-   * @param data. Data values corresponding to voltage values
-   * @n （0 - 32767）.This module is a 15-bit precision DAC module, hence the values ranging from 0 to 32767 correspond to voltages of 0-5V or 0-10V respectively. The specific voltage range depends on the selection of the module's voltage fluctuation switch.
-   * @param channel. Output channels
-   * @n  0:channel 0
-   * @n  1:channel 1
-   * @n  2:All channels
-   */
   GP8413.setDACOutVoltage(0,0);//channel 0 output 0
+
+  //stop execution if there is i2c error
+  if(i2c_error > 0) {
+    Serial.println("I2C initialisation " +String(i2c_error)+" error dectected : Stopping execution");
+    M5.dis.drawpix(0, CRGB::Red);
+    while(1);
+  }
   
   //initialize timer to interupt @ 5ms
   timer = timerBegin(3, 80, true);
@@ -268,35 +272,65 @@ void loop() {
     //stream speed value
     SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //update DAC output
-    uint16_t dac_value = 0;
+    uint16_t dac_value;
     //if coil 0 is set to 1, the steps are used else this the belt
     if(!coils[0]) dac_value = packet.belt_encoder_speed;  
     else dac_value = packet.steps_encoder_speed;
+    //write DAC output
     GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
+    Serial.println(">dac value:"+String(dac_value)+"|np");
+    //Check if dac_value is not null to enable encoder feedback
+    if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
+    else              coils[1] = false; //set encoder feedback coil to false
+    //update modbus holding register with current feedback speed
+    registers[0] = dac_value; //update holding register with current feedback speed
 
-    //print bytes
-    if(debug) {
-      Serial.print("raw packet: ");
-      for (int i = 0; i < sizeof(packet.bytes); i++) {
-        if(i == 2 || i == 4 || i==6) Serial.print(" | ");
-        Serial.print(packet.bytes[i], HEX);
-      }
-      Serial.print(" // packet data : ");
-      Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
-      Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
-      Serial.println("");
-    }
-    //SerialBT.println(String(encoder_speed));
+    //reset flag
     flag_read_encoder = false;
   }
   //if encoder are not updated read modbus coils
   else {
+    //update modbus slave
     slave.update();
+    //Serial.println("Coil 0: " + String(coils[0]));
+    //check for exception on slave modbus
+    if (slave.hasException()) {
+      Serial.println("MODBUS exception: " + String(slave.getExceptionMessage()));
+      slave.clearException();
+    }
+    //read coils
     static bool last_coil = false;
     if(coils[0] != last_coil){
       last_coil = coils[0];
       Serial.println("Coil 0 changed to " + String(coils[0]));
     }
+    //show change of encoder feedback state
+    static bool last_coil1 = false;
+    if(coils[1] != last_coil1){
+      last_coil1 = coils[1];
+      if(coils[1]) Serial.println("Encoder feedback enabled");
+      else         Serial.println("Encoder feedback disabled");
+    }
+  }
+
+  //print bytes
+  if(debug) {
+    /*Serial.print("raw packet: ");
+    for (int i = 0; i < sizeof(packet.bytes); i++) {
+      if(i == 2 || i == 4 || i==6) Serial.print(" | ");
+      Serial.print(packet.bytes[i], HEX);
+    }
+    Serial.println("");
+    //Serial.print(" // packet data : ");
+    //Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
+    //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
+    //Serial.println("");*/
+    //print for teleplot
+    Serial.println(">belt_speed:"+String(packet.belt_encoder_speed)+"|np");
+    Serial.println(">step_speed:"+String(packet.steps_encoder_speed)+"|np");
+    Serial.println(">belt_encoder_count:"+String(belt_encoder_count)+"|np");
+    Serial.println(">steps_encoder_count:"+String(steps_encoder_count)+"|np");
+
   }
  
   //change parameters with buttons
@@ -418,8 +452,8 @@ float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
   //compute speed
   float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
   if(debug){
-    Serial.println("delta_pulses: " + String(delta_count) + " delta_time: " + String(delta_time));
-    Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
+    //Serial.println("delta_pulses: " + String(delta_count) + " delta_time: " + String(delta_time));
+    //Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
   }
   //return speed pulses per second
   return encoder_speed;
