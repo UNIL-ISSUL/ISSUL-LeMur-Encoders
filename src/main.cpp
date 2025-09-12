@@ -1,156 +1,355 @@
 #include <Arduino.h>
 #include <M5Atom.h>
-#include <ModbusRTUMaster.h>
 #include <Wire.h>
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
-#include "ewma.h"
+#include <DFRobot_GP8XXX.h>
+#include <ModbusRTUSlave.h>
 
-//modbus communication
-unsigned long baudrate = 115200UL;  //19200, 38400, 57600, 115200
-#define RX 33
-#define TX 23
-ModbusRTUMaster master(Serial2);
-#define VICON_ADDRESS 4    //modbus address of the Vicon
+#include <BluetoothSerial.h>
+//check if bluetooth is available
+#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
+#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
+#endif
+//check if bluetooth spp is available
+#if !defined(CONFIG_BT_SPP_ENABLED)
+#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
+#endif
 
-//register to write on Vicon
-#define REGISTERS_TO_WRITE_VICON 3   //number of register to write : lift angle, belt speed
-uint16_t outputRegistersVicon[REGISTERS_TO_WRITE_VICON] = {0, 0, 0}; //belt speed, lift angle, blet torque
+//create bluetooth object
+BluetoothSerial SerialBT;
+String myName = "LeMur streaming";
+//const char* pin="1234";
+//bool deviceConnected = false;
+
+//define Union to store transmitted information over bluetooth
+union {
+  byte bytes[7];
+  struct {
+    int16_t belt_encoder_speed ;
+    int16_t steps_encoder_speed ;
+    int16_t inclinaison ;
+    byte stopbyte = 0x0A; //0x0A is line feed, //0x0D is carriage return
+  };
+} packet;
 
 //i2c wire communication
 #define I2C_FREQ 400000UL
+#define SDA 25
+#define SCL 21
 
 //i2c ext-encoder communication
-UNIT_EXT_ENCODER encoder;
-RunningMedian encoder_count_median = RunningMedian(5);
-Ewma encoder_count_ewma = Ewma(0.1);
-Ewma encoder_speed_ewma = Ewma(0.5);
-float compute_encoder_speed();
-float compute_encoder_speed_2(float encoder_count,uint32_t time_us);
-float compute_encoder_speed_3(uint32_t encoder_count);
-//define timer to measure speed
-//https://deepbluembedded.com/esp32-timers-timer-interrupt-tutorial-arduino-ide/?utm_content=cmp-true
-hw_timer_t *timer = NULL;
+UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
+//encoder configuration
+uint32_t pulse[2] = {10000*2,10000*2};  // belt and steps encoder pulse per revolution
+float perimeter[2] = {100.0*PI,126.7*PI}; // belt roller and steps pulley diameter 123.7 mm
+//speed computation function
+float compute_encoder_speed(int32_t delta_count,uint32_t delta_time);
+float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us);
 
 //i2c multiplexer communication
+//two encoders on the i2c multiplexer at address 0x70
+//one ADC directly connected to the i2c bus
 TCA9548 i2cMultiplexer(0x70);
+byte max_channel = 2;
 #define ADC_ADDR 0x48
+#define ENC_ADDR 0x59
+#define UPDATE_PERIOD_US 5000 //5ms
+#define DAC_ADDR 0x58 //DAC address GP8413
 
-uint16_t readADC(uint8_t channel, TCA9548 *multiplexer) {
-    multiplexer->selectChannel(channel);
-    Wire.requestFrom(ADC_ADDR, (uint8_t)2);
-    return (int16_t)((Wire.read() << 8) | Wire.read());
+//define DAC object
+DFRobot_GP8413 GP8413(DAC_ADDR);
+
+//running median filter
+RunningMedian belt_encoder_speed_median = RunningMedian(6);
+RunningMedian steps_encoder_speed_median = RunningMedian(6);
+RunningMedian inclinaison_median = RunningMedian(10); 
+
+//modbus communication
+unsigned long baudrate = 19200UL;
+#define RX 33
+#define TX 23
+ModbusRTUSlave slave(Serial2,3); //modbus slave on serial2, addr to be checked
+#define NUM_COILS 2 //number of coils
+#define NUM_REGISTERS 1 //number of holding registers
+bool coils[NUM_COILS] = {false,false};  //first coil is for steps status and second if for encoder_feedback status
+uint16_t registers[NUM_REGISTERS] = {0}; //belt ot steps encoder speed in mm/s
+
+float readADC() {
+  int length = 2;
+  Wire.requestFrom(ADC_ADDR, length);
+  int16_t raw = (Wire.read() << 8) | Wire.read() ;
+  //Serial.println("raw adc : "+String(raw));
+  return raw*12440.0/8192; //max scale is 12450mV and max output 8192
 }
 
-uint32_t readEncoder() {
-    Wire.beginTransmission(0x59);
-    Wire.write(0x00); // register 0
-    Wire.endTransmission(true);
-    Wire.requestFrom(UNIT_EXT_ENCODER_ADDR, (uint8_t)4);
-    return (int32_t)((Wire.read() << 24) | (Wire.read() << 16) | (Wire.read() << 8) | Wire.read());
-} 
+/*uint32_t readEncoder(bool mm=false) {
+  int register_address = 0x00; // pulse value
+  if(mm) register_address = 0x10; // meter value
+  Wire.beginTransmission(ENC_ADDR);
+  Wire.write(register_address); // register 0
+  Wire.endTransmission(true);
+  Wire.requestFrom(UNIT_EXT_ENCODER_ADDR, (uint8_t)4);
+  return (int32_t)((Wire.read() << 24) | (Wire.read() << 16) | (Wire.read() << 8) | Wire.read());
+}*/
+
+uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
+  if (channel >= max_channel) {
+    Serial.println("No encoder on requested channel : " + String(channel));
+    return 0; //channel not available
+  }
+  multiplexer->selectChannel(channel);
+  if(mm)  return encoders[channel].getMeterValue();
+  else    return encoders[channel].getEncoderValue();
+}
+
+//define timer to measure speed at regular interval
+//https://deepbluembedded.com/esp32-timers-timer-interrupt-tutorial-arduino-ide/?utm_content=cmp-true
+hw_timer_t *timer = NULL;
+bool flag_read_encoder = false;
+//ISR function
+void IRAM_ATTR onTimer(){
+  flag_read_encoder = true;
+}
+
+//function to scale encoder speed to 0-10V output
+uint16_t scale_encoder_speed(float encoder_speed_mm_s) {
+  const uint16_t max_voltage = 10000; //10V
+  const float max_speed_mm_s = 40*1e6 / 3600; //40km/h
+  float speed_mv = max_voltage * encoder_speed_mm_s / max_speed_mm_s;
+  //return ouput scaled on 15bits
+  return uint16_t(32767 * speed_mv / max_voltage);
+}
 
 void setup() {
+  
   //initialize the M5Atom
   M5.begin(true, true, true); // enable serial, enable I2C, enable display (led)
-  Serial.begin(115200);
   Serial.println("M5Atom initialized");
 
   //initialize the modbus communication
   Serial2.begin(baudrate, SERIAL_8E1, RX, TX);
-  master.begin(baudrate);
+  slave.begin(baudrate);
+  //associate coils
+  slave.setCoils(coils, NUM_COILS);
+  slave.setHoldingRegisters(registers,1); //set holding register to store current feedback speed
+  
+  //Bluetooth classic as slave
+  SerialBT.begin(myName, false);
+  //Serial.println(ESP.getEfuseMac());
+  Serial.printf("The device \"%s\" started in slave mode \n", myName.c_str());
 
-  //initialize the timer
-  //timer = timerBegin(2, 1, true); //timer 0, prescaler 80, count up
-  //timerStart(timer);
-
-  //initialize the i2c communication
-  //Wire.setPins(25U, 21U); //default pins (21, 22)
-  Wire.setClock(I2C_FREQ);
-  //Wire.setTimeOut(1000); //1ms timeout
-  Wire.begin(25U, 21U);
-
-
-  //initialize the encoder
-  if(encoder.begin(&Wire, UNIT_EXT_ENCODER_ADDR, 25U, 21U, I2C_FREQ)){
-    Serial.println("Encoder initialized");
-    encoder.setPulse(360);
-    encoder.resetEncoder();
-  }
-  else{
-    Serial.println("Encoder initialization failed");
-  }
-
-  //initialize the i2c multiplexer
+  //I2C communication
+  //Wire.begin(SDA, SCL);
+  Wire.setClock(I2C_FREQ);  //update clock
+  uint8_t i2c_error = 0;
+  //initialize I2C multiplexer
   if(i2cMultiplexer.begin()){
     Serial.println("I2C Multiplexer initialized");
   }
   else{
     Serial.println("I2C Multiplexer initialization failed");
+    i2c_error += 1;
+
   }
-  //search adc device
-  for(int i = 0; i < 2; i++){
+  //search and configure encoders
+  for(int i = 0; i < max_channel; i++){
     i2cMultiplexer.selectChannel(i);
-    bool connected = i2cMultiplexer.isConnected(ADC_ADDR);
+    bool connected = i2cMultiplexer.isConnected(ENC_ADDR);
+    
     if(connected){
-      Serial.println("ADC device found on channel " + String(i));
-      //send configuration to ADC
-      const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
-      Wire.beginTransmission(ADC_ADDR);
-      Wire.write(0x84); // config register
-      Wire.endTransmission();
+      Serial.println("Encoder device found on channel " + String(i));
+      //send configuration to encoder
+      encoders[i].begin(&Wire, ENC_ADDR, SDA, SCL, I2C_FREQ);
+      //encoders[i].setPulse(pulse[i]);
+      //encoders[i].setPerimeter(perimeter[i]);
+      //encoders[i].resetEncoder();
+      Serial.println("Encoder initialized");
     }
     else{
-      Serial.println("ADC device not found on channel " + String(i));
+      Serial.println("Encoder device not found on channel " + String(i));
+      i2c_error += 1;
+      //decrease max channel
+      //max_channel -= 1;
     }
   }
+
+  //initialize ADC device
+
+  //test if ADC is connected
+  Wire.beginTransmission(ADC_ADDR);
+  if (Wire.endTransmission()== 0) {
+    Serial.println("ADC device found");
+    //send configuration to ADC
+    const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
+    Wire.beginTransmission(ADC_ADDR);
+    Wire.write(0x84); // config register
+    Wire.endTransmission();
+    Serial.println("ADC initialized");
+    }
+  else {
+    Serial.println("ADC device not found");
+    i2c_error += 1;
+  }
+
+  //initialize DAC device
+  if (GP8413.begin() == 0) {
+    Serial.println("GP8413 initialized");
+  }
+  else {
+    //if DAC is not found, print error code
+    Serial.println("DAC device not found");
+    i2c_error += 1;
+  }
+  //set DAC output range to 0-10V
+  GP8413.setDACOutRange(GP8413.eOutputRange10V);
+  GP8413.setDACOutVoltage(0,0);//channel 0 output 0
+
+  //stop execution if there is i2c error
+  if(i2c_error > 0) {
+    Serial.println("I2C initialisation " +String(i2c_error)+" error dectected : Stopping execution");
+    M5.dis.drawpix(0, CRGB::Red);
+    while(1);
+  }
   
+  //initialize timer to interupt @ 5ms
+  timer = timerBegin(3, 80, true);
+  timerAttachInterrupt(timer, &onTimer, true);
+  timerAlarmWrite(timer, UPDATE_PERIOD_US, true);
+  timerAlarmEnable(timer);
+
+  //initialize packet
+  packet.belt_encoder_speed = 0;
+  packet.steps_encoder_speed = 0;
+  packet.inclinaison = 0;
+  //initialize display
   M5.dis.drawpix(0, CRGB::Green);
 }
 
 bool debug = false;
 
-float encoder_count;
-float encoder_count_filtered;
-float encoder_speed;
-float encoder_speed_filtered;
+uint32_t belt_encoder_count = 0;
+uint32_t steps_encoder_count = 0;
+uint32_t last_belt_encoder_count = 0;
+uint32_t last_steps_encoder_count = 0;
+uint32_t time_us = 0;
+uint32_t last_time_us = 0;
 
 void loop() {
+  
   //M5 update for button
   M5.update();
   
+  if(flag_read_encoder){
+    //read encoder value
+    belt_encoder_count = readEncoder(0, &i2cMultiplexer);
+    steps_encoder_count = readEncoder(1, &i2cMultiplexer);
+    time_us = micros();
+    //compute speed en pluse/sec
+    belt_encoder_speed_median.add(compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us));
+    steps_encoder_speed_median.add(compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us));
+    float belt_encoder_speed = belt_encoder_speed_median.getMedian();
+    float steps_encoder_speed = steps_encoder_speed_median.getMedian();
+    //float belt_encoder_speed = compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us);
+    //float steps_encoder_speed = compute_encoder_speed(steps_encoder_count-last_steps_encoder_count, time_us-last_time_us);
+    last_belt_encoder_count = belt_encoder_count;
+    last_steps_encoder_count = steps_encoder_count;
+    last_time_us = time_us;
+    //read adc value
+    inclinaison_median.add(readADC());
+    uint32_t inclinaison= round(inclinaison_median.getMedian()*100);  
+
+    //Serial.println("belt_encoder_speed: " + String(round(100.0*belt_encoder_speed*perimeter[0]/pulse[0])) + " steps_encoder_speed: " + String(steps_encoder_speed));
+
+    //update packet
+    packet.belt_encoder_speed   = (int16_t)round(belt_encoder_speed*perimeter[0]/pulse[0]);      // mm/s  rounded to uint16
+    packet.steps_encoder_speed  = (int16_t)round(steps_encoder_speed*perimeter[1]/pulse[1]);     // mm/s rounded to uint16
+    packet.inclinaison          = (int16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
+    //packet.belt_encoder_speed = 'a'<<8 | 'a';
+    //packet.steps_encoder_speed = 'b'<<8 | 'b';
+    //packet.inclinaison = 'c'<<8 | 'c';
+    //stream speed value
+    SerialBT.write(packet.bytes, sizeof(packet.bytes));
+    //update DAC output
+    uint16_t dac_value;
+    //if coil 0 is set to 1, the steps are used else this the belt
+    if(!coils[0]) dac_value = packet.belt_encoder_speed;  
+    else dac_value = packet.steps_encoder_speed;
+    //write DAC output
+    GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
+    Serial.println(">dac value:"+String(dac_value)+"|np");
+    //Check if dac_value is not null to enable encoder feedback
+    if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
+    else              coils[1] = false; //set encoder feedback coil to false
+    //update modbus holding register with current feedback speed
+    registers[0] = dac_value; //update holding register with current feedback speed
+
+    //reset flag
+    flag_read_encoder = false;
+  }
+  //if encoder are not updated read modbus coils
+  else {
+    //update modbus slave
+    slave.update();
+    //Serial.println("Coil 0: " + String(coils[0]));
+    //check for exception on slave modbus
+    if (slave.hasException()) {
+      Serial.println("MODBUS exception: " + String(slave.getExceptionMessage()));
+      slave.clearException();
+    }
+    //read coils
+    static bool last_coil = false;
+    if(coils[0] != last_coil){
+      last_coil = coils[0];
+      Serial.println("Coil 0 changed to " + String(coils[0]));
+    }
+    //show change of encoder feedback state
+    static bool last_coil1 = false;
+    if(coils[1] != last_coil1){
+      last_coil1 = coils[1];
+      if(coils[1]) Serial.println("Encoder feedback enabled");
+      else         Serial.println("Encoder feedback disabled");
+    }
+  }
+
+  //print bytes
+  if(debug) {
+    /*Serial.print("raw packet: ");
+    for (int i = 0; i < sizeof(packet.bytes); i++) {
+      if(i == 2 || i == 4 || i==6) Serial.print(" | ");
+      Serial.print(packet.bytes[i], HEX);
+    }
+    Serial.println("");
+    //Serial.print(" // packet data : ");
+    //Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
+    //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
+    //Serial.println("");*/
+    //print for teleplot
+    Serial.println(">belt_speed:"+String(packet.belt_encoder_speed)+"|np");
+    Serial.println(">step_speed:"+String(packet.steps_encoder_speed)+"|np");
+    Serial.println(">belt_encoder_count:"+String(belt_encoder_count)+"|np");
+    Serial.println(">steps_encoder_count:"+String(steps_encoder_count)+"|np");
+
+  }
+ 
   //change parameters with buttons
   if(M5.Btn.wasPressed()){
     debug = !debug;
     if(debug){
         M5.dis.drawpix(0, CRGB::Orange);
         Serial.println("Debug mode enabled");
-        encoder.resetEncoder();
+        for(int i = 0; i < max_channel; i++){
+          i2cMultiplexer.selectChannel(i);
+          encoders[i].resetEncoder();
+        }
     }
     else{
         M5.dis.drawpix(0, CRGB::Green);
     }
   }
 
-  //read encoder value
-  encoder_count_median.add(encoder.getEncoderValue());
-  static float encoder_cont_last_value = 0;
-  encoder_count = encoder_count_median.getMedian();
-  encoder_count_filtered = encoder_count_ewma.filter(encoder_count);
-  /*float delta_count = encoder_count - encoder_cont_last_value;
-  encoder_cont_last_value = encoder_count;
-
-  //compute encoder speed every 3ms
-  static uint32_t last_time = 0;
-  uint32_t time = micros();
-  uint32_t delta_time = time - last_time;
-  if(time - last_time >= 3000) {
-    encoder_speed = compute_encoder_speed_2(delta_count,delta_time);
-    last_time = time;
-  }*/
-
-  //Send Modbus request
+  /*//Send Modbus request
   static uint32_t last_request = 0;
   if (master.isIdle()) {
     const float  max_pulse_sec = 2900.0 / 60 * 1504; //2900 tr/min at 100Hz with 1504 pulse per rotation
@@ -226,67 +425,36 @@ void loop() {
   if (millis() - last_exception > 1000) {
     if(!debug) M5.dis.drawpix(0, CRGB::Green);
     else M5.dis.drawpix(0, CRGB::Orange);
+  }*/
+}
+
+
+float compute_encoder_speed_2(uint32_t encoder_count,uint32_t time_us) {
+  //define last values 
+  static uint32_t last_time_us = 0;
+  static uint32_t last_encoder_count = 0;
+  //compute deltas
+  //compute deltas count and time
+  int32_t   delta_c = encoder_count - last_encoder_count;
+  uint32_t  delta_t = time_us - last_time_us;
+  //Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
+  //compute speed
+  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
+  //Serial.println("encoder_speed: " + String(encoder_speed));
+  //update last values
+  last_encoder_count = encoder_count;
+  last_time_us = time_us;
+  //retunr speed pulses per second
+  return encoder_speed;
+}
+
+float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
+  //compute speed
+  float encoder_speed = 1e6 * delta_count / delta_time; //impulsions per second
+  if(debug){
+    //Serial.println("delta_pulses: " + String(delta_count) + " delta_time: " + String(delta_time));
+    //Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
   }
-}
-/*
-float compute_encoder_speed_3(uint32_t encoder_count) {
-  //define last values 
-  static uint64_t last_time = 0;
-  static long last_encoder_count = 0;
-  //compute deltas
-  //read encoder value
-  uint64_t time = timerReadMicros(timer);
-  //compute deltas count and time
-  uint32_t delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time - last_time;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
-  //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time = timerReadMicros(timer);
-  //retunr speed pulses per second
-  return encoder_speed;
-}*/
-
-float compute_encoder_speed_2(float encoder_count,uint32_t time_us) {
-  //define last values 
-  static uint32_t last_time_us = 0;
-  static long last_encoder_count = 0;
-  //compute deltas
-  //compute deltas count and time
-  int delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time_us - last_time_us;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
-  //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time_us = time_us;
-  //retunr speed pulses per second
-  return encoder_speed;
-}
-
-float compute_encoder_speed() {
-  //define last values 
-  static uint32_t last_time_us = 0;
-  static long last_encoder_count = 0;
-  //compute deltas
-  //read encoder value
-  uint32_t encoder_count = encoder.getEncoderValue();
-  uint32_t time_us = micros();
-  //compute deltas count and time
-  int delta_c = encoder_count - last_encoder_count;
-  uint32_t delta_t = time_us - last_time_us;
-  Serial.println("delta_c: " + String(delta_c) + " delta_t: " + String(delta_t));
-  //compute speed
-  float encoder_speed = 1e6 * delta_c / delta_t; //impulsions per second
-  Serial.println("encoder_speed: " + String(encoder_speed));
-  //update last values
-  last_encoder_count = encoder_count;
-  last_time_us = time_us;
-  //retunr speed pulses per second
+  //return speed pulses per second
   return encoder_speed;
 }
