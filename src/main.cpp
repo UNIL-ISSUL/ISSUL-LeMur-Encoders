@@ -276,10 +276,12 @@ void loop() {
     //stream speed value
     SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //update DAC output
-    uint16_t dac_value;
+    int16_t selected_speed;
     //if coil 0 is set to 1, the steps are used else this the belt
-    if(!coils[0]) dac_value = packet.belt_encoder_speed;  
-    else dac_value = packet.steps_encoder_speed;
+    if(!coils[0]) selected_speed = packet.belt_encoder_speed;
+    else selected_speed = packet.steps_encoder_speed;
+    //The DAC can only output positive voltage, so we take the absolute value of the speed.
+    uint16_t dac_value = abs(selected_speed);
     //write DAC output
     GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
     Serial.println(">dac value:"+String(dac_value)+"|np");
