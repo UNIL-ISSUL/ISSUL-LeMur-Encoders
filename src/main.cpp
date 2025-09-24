@@ -126,6 +126,7 @@ void setup() {
   
   //initialize the M5Atom
   M5.begin(true, true, true); // enable serial, enable I2C, enable display (led)
+  Serial.begin(115200);
   Serial.println("M5Atom initialized");
 
   //initialize the modbus communication
