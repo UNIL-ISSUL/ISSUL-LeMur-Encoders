@@ -278,7 +278,7 @@ void loop() {
     else dac_value = packet.steps_encoder_speed;
     //write DAC output
     GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
-    Serial.println(">dac value:"+String(dac_value)+"|np");
+    Serial.println(">dac_value:"+String(dac_value)+"|np");
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
     else              coils[1] = false; //set encoder feedback coil to false
@@ -326,10 +326,12 @@ void loop() {
     //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
     //Serial.println("");*/
     //print for teleplot
-    Serial.println(">belt_speed:"+String(packet.belt_encoder_speed)+"|np");
-    Serial.println(">step_speed:"+String(packet.steps_encoder_speed)+"|np");
-    Serial.println(">belt_encoder_count:"+String(belt_encoder_count)+"|np");
-    Serial.println(">steps_encoder_count:"+String(steps_encoder_count)+"|np");
+    String teleplot_debug_str = "";
+    teleplot_debug_str += ">belt_speed:" + String(packet.belt_encoder_speed) + "|np\n";
+    teleplot_debug_str += ">step_speed:" + String(packet.steps_encoder_speed) + "|np\n";
+    teleplot_debug_str += ">belt_encoder_count:" + String(belt_encoder_count) + "|np\n";
+    teleplot_debug_str += ">steps_encoder_count:" + String(steps_encoder_count) + "|np\n";
+    Serial.print(teleplot_debug_str);
 
   }
  
