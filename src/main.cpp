@@ -6,6 +6,7 @@
 #include <RunningMedian.h>
 #include <DFRobot_GP8XXX.h>
 #include <ModbusRTUSlave.h>
+#include <math.h>
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -456,5 +457,5 @@ float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
     //Serial.println("encoder_speed_pulse/s: " + String(encoder_speed));
   }
   //return speed pulses per second
-  return encoder_speed;
+  return fabs(encoder_speed);
 }
