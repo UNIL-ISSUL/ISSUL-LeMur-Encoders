@@ -68,8 +68,8 @@ DFRobot_GP8413 GP8413(DAC_ADDR);
 // Exponentially Weighted Moving Average (EWMA) filter for smoothing speed data.
 // A smaller alpha value (e.g., 0.1) results in more smoothing but slower response to changes.
 // A larger alpha value (e.g., 0.5) results in less smoothing but faster response.
-EWMA belt_encoder_speed_filter(0.1);
-EWMA steps_encoder_speed_filter(0.1);
+Ewma belt_encoder_speed_filter(0.1);
+Ewma steps_encoder_speed_filter(0.1);
 RunningMedian inclinaison_median = RunningMedian(10); 
 
 //modbus communication
