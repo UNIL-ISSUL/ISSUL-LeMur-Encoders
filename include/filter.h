@@ -1,7 +1,7 @@
 #ifndef IIR_FILTER_H
 #define IIR_FILTER_H
 
-#define MAX_FILTER_ORDER 5
+#define MAX_FILTER_ORDER 6
 
 class IIRFilter {
 public:

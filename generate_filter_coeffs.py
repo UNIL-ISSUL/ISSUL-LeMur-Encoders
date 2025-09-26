@@ -30,12 +30,12 @@ def print_coeffs_for_cpp(b, a, order):
     print(f"// Butterworth Low-pass Filter, Order = {order}")
     print(f"// Sampling Frequency (fs) = {fs} Hz, Cutoff Frequency (fc) = {fc} Hz")
 
-    print("const float b[] = {")
+    print("const float b_coeffs[] = {")
     for val in b:
         print(f"    {val:.10f},")
     print("};")
 
-    print("const float a[] = {")
+    print("const float a_coeffs[] = {")
     for val in a:
         print(f"    {val:.10f},")
     print("};")
@@ -44,14 +44,9 @@ def print_coeffs_for_cpp(b, a, order):
 
 if __name__ == "__main__":
     fs = 200.0  # Sampling frequency in Hz
-    fc = 9.0    # Cutoff frequency in Hz
-
-    # Generate and print coefficients for a 2nd-order filter
-    order_2 = 2
-    b2, a2 = generate_butter_coeffs(fs, fc, order_2)
-    print_coeffs_for_cpp(b2, a2, order_2)
+    fc = 10.0    # Cutoff frequency in Hz
 
     # Generate and print coefficients for a 4th-order filter
-    order_4 = 4
-    b4, a4 = generate_butter_coeffs(fs, fc, order_4)
-    print_coeffs_for_cpp(b4, a4, order_4)
+    order = 4
+    b, a = generate_butter_coeffs(fs, fc, order)
+    print_coeffs_for_cpp(b, a, order)
