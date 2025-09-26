@@ -280,7 +280,18 @@ void loop() {
     else dac_value = packet.steps_encoder_speed;
     //write DAC output
     GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
-    Serial.println(">dac_value:"+String(dac_value)+"|np");
+
+    // Consolidate all Teleplot prints into a single string
+    if (debug) {
+      String teleplot_str = "";
+      teleplot_str += ">dac_value:" + String(dac_value) + "|np\r\n";
+      teleplot_str += ">belt_speed:" + String(packet.belt_encoder_speed) + "|np\r\n";
+      teleplot_str += ">step_speed:" + String(packet.steps_encoder_speed) + "|np\r\n";
+      //teleplot_str += ">belt_encoder_count:" + String(belt_encoder_count) + "|np\r\n";
+      //teleplot_str += ">steps_encoder_count:" + String(steps_encoder_count) + "|np\r\n";
+      Serial.print(teleplot_str);
+    }
+
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
     else              coils[1] = false; //set encoder feedback coil to false
@@ -297,44 +308,24 @@ void loop() {
     //Serial.println("Coil 0: " + String(coils[0]));
     //check for exception on slave modbus
     if (slave.hasException()) {
-      Serial.println("MODBUS exception: " + String(slave.getExceptionMessage()));
+      if (!debug) Serial.println("MODBUS exception: " + String(slave.getExceptionMessage()));
       slave.clearException();
     }
     //read coils
     static bool last_coil = false;
     if(coils[0] != last_coil){
       last_coil = coils[0];
-      Serial.println("Coil 0 changed to " + String(coils[0]));
+      if (!debug) Serial.println("Coil 0 changed to " + String(coils[0]));
     }
     //show change of encoder feedback state
     static bool last_coil1 = false;
     if(coils[1] != last_coil1){
       last_coil1 = coils[1];
-      if(coils[1]) Serial.println("Encoder feedback enabled");
-      else         Serial.println("Encoder feedback disabled");
+      if (!debug) {
+        if(coils[1]) Serial.println("Encoder feedback enabled");
+        else         Serial.println("Encoder feedback disabled");
+      }
     }
-  }
-
-  //print bytes
-  if(debug) {
-    /*Serial.print("raw packet: ");
-    for (int i = 0; i < sizeof(packet.bytes); i++) {
-      if(i == 2 || i == 4 || i==6) Serial.print(" | ");
-      Serial.print(packet.bytes[i], HEX);
-    }
-    Serial.println("");
-    //Serial.print(" // packet data : ");
-    //Serial.println("belt_speed: " + String(packet.belt_encoder_speed) + " steps_speed :" + String(packet.steps_encoder_speed)+ " inclinaison: " + String(packet.inclinaison));
-    //Serial.println("belt_encoder_count: " + String(belt_encoder_count) + " steps_encoder_count: " + String(steps_encoder_count));
-    //Serial.println("");*/
-    //print for teleplot
-    String teleplot_debug_str = "";
-    teleplot_debug_str += ">belt_speed:" + String(packet.belt_encoder_speed) + "|np\n";
-    teleplot_debug_str += ">step_speed:" + String(packet.steps_encoder_speed) + "|np\n";
-    teleplot_debug_str += ">belt_encoder_count:" + String(belt_encoder_count) + "|np\n";
-    teleplot_debug_str += ">steps_encoder_count:" + String(steps_encoder_count) + "|np\n";
-    Serial.print(teleplot_debug_str);
-
   }
  
   //change parameters with buttons
