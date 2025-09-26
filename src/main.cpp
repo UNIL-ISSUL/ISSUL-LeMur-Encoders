@@ -7,6 +7,7 @@
 #include <DFRobot_GP8XXX.h>
 #include <ModbusRTUSlave.h>
 #include <math.h>
+#include "filter.h"
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -65,7 +66,26 @@ DFRobot_GP8413 GP8413(DAC_ADDR);
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(6);
 RunningMedian steps_encoder_speed_median = RunningMedian(6);
-RunningMedian inclinaison_median = RunningMedian(10); 
+RunningMedian inclinaison_median = RunningMedian(10);
+
+// IIR Butterworth Low-pass Filter for belt speed
+IIRFilter belt_speed_filter;
+const int belt_filter_order = 4;
+// Coefficients generated for 200Hz sampling, 9Hz cutoff
+const float b_coeffs[] = {
+    0.0002831443,
+    0.0011325773,
+    0.0016988660,
+    0.0011325773,
+    0.0002831443,
+};
+const float a_coeffs[] = {
+    1.0000000000,
+    -3.2623133102,
+    4.0470266364,
+    -2.2564627181,
+    0.4762797012,
+};
 
 //modbus communication
 unsigned long baudrate = 19200UL;
@@ -227,6 +247,9 @@ void setup() {
   packet.inclinaison = 0;
   //initialize display
   M5.dis.drawpix(0, CRGB::Green);
+
+  //initialize the belt speed filter
+  belt_speed_filter.init(belt_filter_order, b_coeffs, a_coeffs);
 }
 
 bool debug = false;
@@ -283,9 +306,13 @@ void loop() {
 
     // Consolidate all Teleplot prints into a single string
     if (debug) {
+      float filtered_belt_encoder_speed = belt_speed_filter.filter(belt_encoder_speed);
+      float filtered_belt_speed_mms = filtered_belt_encoder_speed * perimeter[0] / pulse[0];
+
       String teleplot_str = "";
       teleplot_str += ">dac_value:" + String(dac_value) + "|np\r\n";
       teleplot_str += ">belt_speed:" + String(packet.belt_encoder_speed) + "|np\r\n";
+      teleplot_str += ">filtered_belt_speed:" + String(filtered_belt_speed_mms) + "|np\r\n";
       teleplot_str += ">step_speed:" + String(packet.steps_encoder_speed) + "|np\r\n";
       //teleplot_str += ">belt_encoder_count:" + String(belt_encoder_count) + "|np\r\n";
       //teleplot_str += ">steps_encoder_count:" + String(steps_encoder_count) + "|np\r\n";
