@@ -57,7 +57,7 @@ TCA9548 i2cMultiplexer(0x70);
 byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
-#define UPDATE_PERIOD_US 5000 /5ms
+#define UPDATE_PERIOD_US 5000 //5ms
 #define DAC_ADDR 0x58 //DAC address GP8413
 
 //define DAC object
