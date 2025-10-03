@@ -264,8 +264,7 @@ void setup() {
   encoder_speed_filter.init(filter_order, b_coeffs, a_coeffs);
 }
 
-//bool debug = false;
-bool debug = true;
+bool debug = false;
 
 uint32_t belt_encoder_count = 0;
 uint32_t steps_encoder_count = 0;
