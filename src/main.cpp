@@ -8,6 +8,7 @@
 #include <ModbusRTUSlave.h>
 #include <math.h>
 #include "filter.h"
+#include <EWMA.h>
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -71,6 +72,11 @@ RunningMedian inclinaison_median = RunningMedian(10);
 // IIR Butterworth Low-pass Filter for belt speed
 IIRFilter belt_speed_filter;
 IIRFilter encoder_speed_filter;
+
+// EWMA Filter
+EWMA belt_speed_ewma_filter(2.0/201.0);
+EWMA steps_speed_ewma_filter(2.0/201.0);
+
 const int filter_order = 4;
 // Coefficients generated for 200Hz sampling, 9Hz cutoff
 const float b_coeffs[] = {
@@ -302,9 +308,12 @@ void loop() {
     //filter speeds
     float filtered_belt_speed = belt_speed_filter.filter(belt_encoder_speed);
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
+    //apply EWMA filter
+    float ewma_belt_speed = belt_speed_ewma_filter.filter(filtered_belt_speed);
+    float ewma_steps_speed = steps_speed_ewma_filter.filter(filtered_steps_speed);
     //update packet
-    packet.belt_encoder_speed   = (int16_t)round(filtered_belt_speed);      // mm/s  rounded to uint16
-    packet.steps_encoder_speed  = (int16_t)round(filtered_steps_speed);     // mm/s rounded to uint16
+    packet.belt_encoder_speed   = (int16_t)round(ewma_belt_speed);      // mm/s  rounded to uint16
+    packet.steps_encoder_speed  = (int16_t)round(ewma_steps_speed);     // mm/s rounded to uint16
     packet.inclinaison          = (int16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
     //packet.belt_encoder_speed = 'a'<<8 | 'a';
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
@@ -324,7 +333,7 @@ void loop() {
       uint32_t now = millis();
       //float filtered_belt_encoder_speed = belt_speed_filter.filter(belt_encoder_speed);
       //float filtered_belt_speed_mms = filtered_belt_encoder_speed * perimeter[0] / pulse[0];
-
+      teleplot_print("ewma_belt_speed", ewma_belt_speed, now);
       teleplot_print("filtered_belt_speed", filtered_belt_speed, now);
       teleplot_print("belt_speed", belt_encoder_speed, now);
       //String teleplot_str = "";
