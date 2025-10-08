@@ -8,6 +8,7 @@
 #include <ModbusRTUSlave.h>
 #include <math.h>
 #include "filter.h"
+#include "teleplot.h"
 
 #include <BluetoothSerial.h>
 //check if bluetooth is available
@@ -71,21 +72,19 @@ RunningMedian inclinaison_median = RunningMedian(10);
 // IIR Butterworth Low-pass Filter for belt speed
 IIRFilter belt_speed_filter;
 IIRFilter encoder_speed_filter;
-const int filter_order = 4;
-// Coefficients generated for 200Hz sampling, 9Hz cutoff
+// Sampling Frequency (fs) = 200.0 Hz, Cutoff Frequency (fc) = 10.0 Hz
+const int filter_order = 3;
 const float b_coeffs[] = {
-    0.0004165992,
-    0.0016663968,
-    0.0024995952,
-    0.0016663968,
-    0.0004165992,
+    0.0028981946,
+    0.0086945839,
+    0.0086945839,
+    0.0028981946,
 };
 const float a_coeffs[] = {
     1.0000000000,
-    -3.1806385489,
-    3.8611943490,
-    -2.1121553551,
-    0.4382651423,
+    -2.3740947437,
+    1.9293556691,
+    -0.5320753683,
 };
 
 //modbus communication
@@ -144,13 +143,7 @@ uint16_t scale_encoder_speed(float encoder_speed_mm_s) {
   return uint16_t(32767 * speed_mv / max_voltage);
 }
 
-//plot function for teleplot
-void teleplot_print(String text, int data, uint32_t now) {
-  Serial.print(">"+text+":");
-  Serial.print(now);
-  Serial.print(":");
-  Serial.println(data);
-}
+
 
 void setup() {
   
@@ -309,33 +302,15 @@ void loop() {
     //packet.steps_encoder_speed = 'b'<<8 | 'b';
     //packet.inclinaison = 'c'<<8 | 'c';
     //stream speed value
-    SerialBT.write(packet.bytes, sizeof(packet.bytes));
+    //SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //update DAC output
     uint16_t dac_value;
     //if coil 0 is set to 1, the steps are used else this the belt
-    if(!coils[0]) dac_value = packet.belt_encoder_speed;  
-    else dac_value = packet.steps_encoder_speed;
+    //send raw data to dac 
+    if(!coils[0]) dac_value = (int16_t)round(belt_encoder_speed);  
+    else dac_value = (int16_t)round(steps_encoder_speed);
     //write DAC output
     GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
-
-    // Consolidate all Teleplot prints into a single string
-    if (debug) {
-      uint32_t now = millis();
-      //float filtered_belt_encoder_speed = belt_speed_filter.filter(belt_encoder_speed);
-      //float filtered_belt_speed_mms = filtered_belt_encoder_speed * perimeter[0] / pulse[0];
-
-      teleplot_print("filtered_belt_speed", filtered_belt_speed, now);
-      teleplot_print("belt_speed", belt_encoder_speed, now);
-      //String teleplot_str = "";
-      //teleplot_str += ">dac_value:" + String(dac_value) + "|np\r\n";
-      //teleplot_str += ">belt_speed:" + String(packet.belt_encoder_speed) + "|np\r\n";
-      //teleplot_str += ">filtered_belt_speed:" + String(filtered_belt_speed_mms) + "|np\r\n";
-      //teleplot_str += ">step_speed:" + String(packet.steps_encoder_speed) + "|np\r\n";
-      //teleplot_str += ">belt_encoder_count:" + String(belt_encoder_count) + "|np\r\n";
-      //teleplot_str += ">steps_encoder_count:" + String(steps_encoder_count) + "|np\r\n";
-      //Serial.print(teleplot_str);
-    }
-
 
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
@@ -345,6 +320,13 @@ void loop() {
 
     //reset flag
     flag_read_encoder = false;
+
+    // Teleplot output for debugging
+    if (debug) {
+      uint32_t now = millis();
+      teleplot_print("belt_speed", {belt_encoder_speed,filtered_belt_speed}, now);
+      teleplot_print("steps_speed", {steps_encoder_speed,filtered_steps_speed}, now);
+    }
   }
   //if encoder are not updated read modbus coils
   else {
@@ -498,3 +480,4 @@ float compute_encoder_speed(int32_t delta_count,uint32_t delta_time) {
   //return speed pulses per second
   return fabs(encoder_speed);
 }
+
