@@ -46,7 +46,7 @@ def print_coeffs_for_cpp(b, a, order):
 
 if __name__ == "__main__":
     fs = 200.0  # Sampling frequency in Hz
-    fc = 10.0    # Cutoff frequency in Hz
+    fc = 3.0    # Cutoff frequency in Hz
 
     # Generate and print coefficients for a 4th-order filter
     order = 3

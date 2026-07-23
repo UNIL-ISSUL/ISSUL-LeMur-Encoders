@@ -72,19 +72,19 @@ RunningMedian inclinaison_median = RunningMedian(10);
 // IIR Butterworth Low-pass Filter for belt speed
 IIRFilter belt_speed_filter;
 IIRFilter encoder_speed_filter;
-// Sampling Frequency (fs) = 200.0 Hz, Cutoff Frequency (fc) = 10.0 Hz
+// Sampling Frequency (fs) = 200.0 Hz, Cutoff Frequency (fc) = 3.0 Hz
 const int filter_order = 3;
 const float b_coeffs[] = {
-    0.0028981946,
-    0.0086945839,
-    0.0086945839,
-    0.0028981946,
+    0.0000954425,
+    0.0002863275,
+    0.0002863275,
+    0.0000954425,
 };
 const float a_coeffs[] = {
     1.0000000000,
-    -2.3740947437,
-    1.9293556691,
-    -0.5320753683,
+    -2.8115736773,
+    2.6404834928,
+    -0.8281462754,
 };
 
 //modbus communication
@@ -324,8 +324,9 @@ void loop() {
     // Teleplot output for debugging
     if (debug) {
       uint32_t now = millis();
-      teleplot_print("belt_speed", {belt_encoder_speed,filtered_belt_speed}, now);
-      teleplot_print("steps_speed", {steps_encoder_speed,filtered_steps_speed}, now);
+      teleplot_print("belt_speed", belt_encoder_speed, now);
+      teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
+      //teleplot_print("steps_speed", steps_encoder_speed, now);
     }
   }
   //if encoder are not updated read modbus coils
