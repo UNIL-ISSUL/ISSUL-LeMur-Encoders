@@ -4,39 +4,11 @@
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
-#include <DFRobot_GP8XXX.h>
+#include <DFRobot_GP8302.h>
 #include <ModbusRTUSlave.h>
 #include <math.h>
 #include "filter.h"
 #include "teleplot.h"
-
-#include <BluetoothSerial.h>
-//check if bluetooth is available
-#if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
-#error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
-#endif
-//check if bluetooth spp is available
-#if !defined(CONFIG_BT_SPP_ENABLED)
-#error Serial Bluetooth not available or not enabled. It is only available for the ESP32 chip.
-#endif
-
-//create bluetooth object
-BluetoothSerial SerialBT;
-String myName = "LeMur streaming";
-//const char* pin="1234";
-//bool deviceConnected = false;
-
-//define Union to store transmitted information over bluetooth
-union {
-  byte bytes[7];
-  struct {
-    int16_t belt_encoder_speed ;
-    int16_t steps_encoder_speed ;
-    int16_t inclinaison ;
-    byte stopbyte = 0x0A; //0x0A is line feed, //0x0D is carriage return
-  };
-} packet;
-
 //i2c wire communication
 #define I2C_FREQ 400000UL
 #define SDA 25
@@ -59,10 +31,11 @@ byte max_channel = 2;
 #define ADC_ADDR 0x48
 #define ENC_ADDR 0x59
 #define UPDATE_PERIOD_US 5000 //5ms
-#define DAC_ADDR 0x58 //DAC address GP8413
+#define DAC_ADDR 0x58 //DAC address GP8302
 
 //define DAC object
-DFRobot_GP8413 GP8413(DAC_ADDR);
+DFRobot_GP8302 dac_speed;
+DFRobot_GP8302 dac_incl;
 
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(7);
@@ -134,14 +107,6 @@ void IRAM_ATTR onTimer(){
   flag_read_encoder = true;
 }
 
-//function to scale encoder speed to 0-10V output
-uint16_t scale_encoder_speed(float encoder_speed_mm_s) {
-  const uint16_t max_voltage = 10000; //10V
-  const float max_speed_mm_s = 40*1e6 / 3600; //40km/h
-  float speed_mv = max_voltage * encoder_speed_mm_s / max_speed_mm_s;
-  //return ouput scaled on 15bits
-  return uint16_t(32767 * speed_mv / max_voltage);
-}
 
 
 
@@ -161,10 +126,6 @@ void setup() {
   slave.setCoils(coils, NUM_COILS);
   slave.setHoldingRegisters(registers,1); //set holding register to store current feedback speed
   
-  //Bluetooth classic as slave
-  SerialBT.begin(myName, false);
-  //Serial.println(ESP.getEfuseMac());
-  Serial.printf("The device \"%s\" started in slave mode \n", myName.c_str());
 
   //I2C communication
   //Wire.begin(SDA, SCL);
@@ -219,18 +180,24 @@ void setup() {
     i2c_error += 1;
   }
 
-  //initialize DAC device
-  if (GP8413.begin() == 0) {
-    Serial.println("GP8413 initialized");
-  }
-  else {
-    //if DAC is not found, print error code
-    Serial.println("DAC device not found");
+  //initialize DAC devices
+  i2cMultiplexer.selectChannel(2);
+  if (dac_speed.begin() == 0) {
+    Serial.println("GP8302 (speed) initialized on channel 2");
+    dac_speed.calibration4_20mA();
+  } else {
+    Serial.println("DAC device (speed) not found on channel 2");
     i2c_error += 1;
   }
-  //set DAC output range to 0-10V
-  GP8413.setDACOutRange(GP8413.eOutputRange10V);
-  GP8413.setDACOutVoltage(0,0);//channel 0 output 0
+
+  i2cMultiplexer.selectChannel(3);
+  if (dac_incl.begin() == 0) {
+    Serial.println("GP8302 (inclinaison) initialized on channel 3");
+    dac_incl.calibration4_20mA();
+  } else {
+    Serial.println("DAC device (inclinaison) not found on channel 3");
+    i2c_error += 1;
+  }
 
   //stop execution if there is i2c error
   if(i2c_error > 0) {
@@ -245,10 +212,6 @@ void setup() {
   timerAlarmWrite(timer, UPDATE_PERIOD_US, true);
   timerAlarmEnable(timer);
 
-  //initialize packet
-  packet.belt_encoder_speed = 0;
-  packet.steps_encoder_speed = 0;
-  packet.inclinaison = 0;
   //initialize display
   M5.dis.drawpix(0, CRGB::Green);
 
@@ -294,15 +257,6 @@ void loop() {
     //filter speeds
     float filtered_belt_speed = belt_speed_filter.filter(belt_encoder_speed);
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
-    //update packet
-    packet.belt_encoder_speed   = (int16_t)round(filtered_belt_speed);      // mm/s  rounded to uint16
-    packet.steps_encoder_speed  = (int16_t)round(filtered_steps_speed);     // mm/s rounded to uint16
-    packet.inclinaison          = (int16_t)round(inclinaison * 90 / 10000);             // 0-00° x100 rounded to uint16 coded on 10mV
-    //packet.belt_encoder_speed = 'a'<<8 | 'a';
-    //packet.steps_encoder_speed = 'b'<<8 | 'b';
-    //packet.inclinaison = 'c'<<8 | 'c';
-    //stream speed value
-    //SerialBT.write(packet.bytes, sizeof(packet.bytes));
     //update DAC output
     uint16_t dac_value;
     //if coil 0 is set to 1, the steps are used else this the belt
@@ -310,7 +264,24 @@ void loop() {
     if(!coils[0]) dac_value = (int16_t)round(belt_encoder_speed);  
     else dac_value = (int16_t)round(steps_encoder_speed);
     //write DAC output
-    GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
+    // calculate current for speed DAC
+    const float max_speed_mm_s = 40.0 * 1e6 / 3600.0; // 40km/h
+    float speed_mA = 4.0 + ((float)dac_value * 16.0 / max_speed_mm_s);
+    if (speed_mA > 20.0) speed_mA = 20.0;
+    if (speed_mA < 4.0) speed_mA = 4.0;
+
+    // calculate current for inclinaison DAC
+    float incl_deg = (float)inclinaison * 90.0 / 10000.0;
+    float incl_mA = 4.0 + (incl_deg * 16.0 / 90.0);
+    if (incl_mA > 20.0) incl_mA = 20.0;
+    if (incl_mA < 4.0) incl_mA = 4.0;
+
+    //write DAC outputs
+    i2cMultiplexer.selectChannel(2);
+    dac_speed.output(speed_mA);
+
+    i2cMultiplexer.selectChannel(3);
+    dac_incl.output(incl_mA);
 
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
