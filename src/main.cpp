@@ -182,22 +182,25 @@ void setup() {
 
   //initialize DAC devices
   i2cMultiplexer.selectChannel(2);
-  if (dac_speed.begin() == 0) {
+  if (dac_speed.begin(SCL,SDA) == 0) {
     Serial.println("GP8302 (speed) initialized on channel 2");
-    dac_speed.calibration4_20mA();
+    //dac_speed.calibration4_20mA();
+    //dac_speed.output(10);
   } else {
     Serial.println("DAC device (speed) not found on channel 2");
     i2c_error += 1;
   }
-
-  i2cMultiplexer.selectChannel(3);
-  if (dac_incl.begin() == 0) {
+  dac_incl.begin(SCL,SDA);
+  dac_incl.output(10); //set initial output to 10mA for inclinaison
+  /*i2cMultiplexer.selectChannel(3);
+  if (dac_incl.begin(SCL,SDA) == 0) {
     Serial.println("GP8302 (inclinaison) initialized on channel 3");
-    dac_incl.calibration4_20mA();
+    //dac_incl.calibration4_20mA();
+    //dac_incl.output(10);
   } else {
     Serial.println("DAC device (inclinaison) not found on channel 3");
     i2c_error += 1;
-  }
+  }*/
 
   //stop execution if there is i2c error
   if(i2c_error > 0) {
@@ -296,8 +299,12 @@ void loop() {
     if (debug) {
       uint32_t now = millis();
       teleplot_print("belt_speed", belt_encoder_speed, now);
-      teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
-      //teleplot_print("steps_speed", steps_encoder_speed, now);
+      //teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
+      teleplot_print("steps_speed", steps_encoder_speed, now);
+      //teleplot_print("steps_filtered_speed", filtered_steps_speed, now);
+      teleplot_print("inclinaison", incl_deg, now);
+      teleplot_print("inclinaison_mA", incl_mA, now);
+      teleplot_print("speed_mA", speed_mA, now);
     }
   }
   //if encoder are not updated read modbus coils
