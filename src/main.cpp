@@ -98,6 +98,26 @@ uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
   else    return encoders[channel].getEncoderValue();
 }
 
+void set_DFR0972_mA(uint8_t channel, float current_mA, uint16_t dac_4mA, uint16_t dac_20mA) {
+  // 1. Aiguillage sécurisé via le multiplexeur
+  i2cMultiplexer.selectChannel(channel);
+  delayMicroseconds(50); // Pause microscopique vitale
+  
+  // 2. Sécurisation des limites matérielles (4 à 20 mA)
+  if (current_mA < 4.0) current_mA = 4.0;
+  if (current_mA > 20.0) current_mA = 20.0;
+  
+  // 3. Calcul proportionnel avec les bornes spécifiques de CE module
+  uint16_t dac_val = dac_4mA + ((current_mA - 4.0) * (float)(dac_20mA - dac_4mA) / 16.0);
+  
+  // 4. Envoi I2C "Bare-Metal" avec l'alignement 12-bits corrigé
+  Wire.beginTransmission(0x58);
+  Wire.write(0x02);                   // Registre de sortie DAC
+  Wire.write((dac_val << 4) & 0xFF);  // Poids faible (décalé de 4 bits à gauche)
+  Wire.write((dac_val >> 4) & 0xFF);  // Poids fort
+  Wire.endTransmission();
+}
+
 //define timer to measure speed at regular interval
 //https://deepbluembedded.com/esp32-timers-timer-interrupt-tutorial-arduino-ide/?utm_content=cmp-true
 hw_timer_t *timer = NULL;
@@ -106,8 +126,6 @@ bool flag_read_encoder = false;
 void IRAM_ATTR onTimer(){
   flag_read_encoder = true;
 }
-
-
 
 
 void setup() {
@@ -182,25 +200,22 @@ void setup() {
 
   //initialize DAC devices
   i2cMultiplexer.selectChannel(2);
-  if (dac_speed.begin(SCL,SDA) == 0) {
-    Serial.println("GP8302 (speed) initialized on channel 2");
-    //dac_speed.calibration4_20mA();
-    //dac_speed.output(10);
-  } else {
-    Serial.println("DAC device (speed) not found on channel 2");
+  if(i2cMultiplexer.isConnected(DAC_ADDR)){
+    Serial.println("DAC device found on channel 2");
+  }
+  else{
+    Serial.println("DAC device not found on channel 2");
     i2c_error += 1;
   }
-  dac_incl.begin(SCL,SDA);
-  dac_incl.output(10); //set initial output to 10mA for inclinaison
-  /*i2cMultiplexer.selectChannel(3);
-  if (dac_incl.begin(SCL,SDA) == 0) {
-    Serial.println("GP8302 (inclinaison) initialized on channel 3");
-    //dac_incl.calibration4_20mA();
-    //dac_incl.output(10);
-  } else {
-    Serial.println("DAC device (inclinaison) not found on channel 3");
+
+  i2cMultiplexer.selectChannel(3);
+  if(i2cMultiplexer.isConnected(DAC_ADDR)){
+    Serial.println("DAC device found on channel 3");
+  }
+  else{
+    Serial.println("DAC device not found on channel 3");
     i2c_error += 1;
-  }*/
+  }
 
   //stop execution if there is i2c error
   if(i2c_error > 0) {
@@ -274,17 +289,14 @@ void loop() {
     if (speed_mA < 4.0) speed_mA = 4.0;
 
     // calculate current for inclinaison DAC
-    float incl_deg = (float)inclinaison * 90.0 / 10000.0;
+    float incl_deg = (float)inclinaison * 90 / 10000.0;
     float incl_mA = 4.0 + (incl_deg * 16.0 / 90.0);
+    Serial.println("Inclinaison: " + String(inclinaison) + " deg, Current: " + String(incl_mA) + " mA");
     if (incl_mA > 20.0) incl_mA = 20.0;
     if (incl_mA < 4.0) incl_mA = 4.0;
 
-    //write DAC outputs
-    i2cMultiplexer.selectChannel(2);
-    dac_speed.output(speed_mA);
-
-    i2cMultiplexer.selectChannel(3);
-    dac_incl.output(incl_mA);
+    set_DFR0972_mA(2, speed_mA, 654, 3279);
+    set_DFR0972_mA(3, incl_mA, 654, 3279);
 
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
