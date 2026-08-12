@@ -256,6 +256,7 @@ void loop() {
     //read encoder value
     belt_encoder_count = readEncoder(0, &i2cMultiplexer);
     steps_encoder_count = readEncoder(1, &i2cMultiplexer);
+    //Serial.println("Belt encoder count: " + String(belt_encoder_count) + " Steps encoder count: " + String(steps_encoder_count));
     time_us = micros();
     //compute speed en pluse/sec
     belt_encoder_speed_median.add(compute_encoder_speed(belt_encoder_count-last_belt_encoder_count, time_us-last_time_us));
@@ -283,8 +284,12 @@ void loop() {
     else dac_value = (int16_t)round(steps_encoder_speed);
     //write DAC output
     // calculate current for speed DAC
-    const float max_speed_mm_s = 40.0 * 1e6 / 3600.0; // 40km/h
-    float speed_mA = 4.0 + ((float)dac_value * 16.0 / max_speed_mm_s);
+    float speed_mA;
+    const uint16_t max_belt_speed_mm_s = 12000; // 40km/h
+    const uint16_t max_steps_speed_mm_s = 3000; // 1m/s
+    if (!coils[0]) speed_mA = 4.0 + (16.0 * belt_encoder_speed / max_belt_speed_mm_s);
+    else speed_mA = 4.0 + (16.0 * steps_encoder_speed / max_steps_speed_mm_s);
+    //Serial.println("Speed mA: " + String(speed_mA));
     if (speed_mA > 20.0) speed_mA = 20.0;
     if (speed_mA < 4.0) speed_mA = 4.0;
 
@@ -294,8 +299,12 @@ void loop() {
     if (incl_mA > 20.0) incl_mA = 20.0;
     if (incl_mA < 4.0) incl_mA = 4.0;
 
+    //speed_mA = 20;
+    //incl_mA = 12;
     set_DFR0972_mA(2, speed_mA, 654, 3279);
     set_DFR0972_mA(3, incl_mA, 654, 3279);
+    //print mA sent value
+    //Serial.println("Speed mA: " + String(speed_mA) + " Inclinaison mA: " + String(incl_mA));
 
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
