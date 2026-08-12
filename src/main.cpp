@@ -4,7 +4,7 @@
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
-#include <DFRobot_GP8XXX.h>
+//#include <DFRobot_GP8XXX.h>
 #include <ModbusRTUSlave.h>
 #include <math.h>
 #include "filter.h"
@@ -62,7 +62,7 @@ byte max_channel = 2;
 #define DAC_ADDR 0x58 //DAC address GP8413
 
 //define DAC object
-DFRobot_GP8413 GP8413(DAC_ADDR);
+//DFRobot_GP8413 GP8413(DAC_ADDR);
 
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(7);
@@ -218,7 +218,7 @@ void setup() {
     Serial.println("ADC device not found");
     i2c_error += 1;
   }
-
+  /*
   //initialize DAC device
   if (GP8413.begin() == 0) {
     Serial.println("GP8413 initialized");
@@ -231,7 +231,7 @@ void setup() {
   //set DAC output range to 0-10V
   GP8413.setDACOutRange(GP8413.eOutputRange10V);
   GP8413.setDACOutVoltage(0,0);//channel 0 output 0
-
+  */
   //stop execution if there is i2c error
   if(i2c_error > 0) {
     Serial.println("I2C initialisation " +String(i2c_error)+" error dectected : Stopping execution");
@@ -310,7 +310,7 @@ void loop() {
     if(!coils[0]) dac_value = (int16_t)round(belt_encoder_speed);  
     else dac_value = (int16_t)round(steps_encoder_speed);
     //write DAC output
-    GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
+    //GP8413.setDACOutVoltage(scale_encoder_speed(dac_value),0);
 
     //Check if dac_value is not null to enable encoder feedback
     if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
@@ -325,8 +325,9 @@ void loop() {
     if (debug) {
       uint32_t now = millis();
       teleplot_print("belt_speed", belt_encoder_speed, now);
-      teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
-      //teleplot_print("steps_speed", steps_encoder_speed, now);
+      //teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
+      teleplot_print("steps_speed", steps_encoder_speed, now);
+      teleplot_print("steps_count", (float)steps_encoder_count, now);
     }
   }
   //if encoder are not updated read modbus coils
