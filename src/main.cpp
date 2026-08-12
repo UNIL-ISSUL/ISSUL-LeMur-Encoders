@@ -289,9 +289,8 @@ void loop() {
     if (speed_mA < 4.0) speed_mA = 4.0;
 
     // calculate current for inclinaison DAC
-    float incl_deg = (float)inclinaison * 90 / 10000.0;
+    float incl_deg = (float)inclinaison * 90 / 1000000.0;
     float incl_mA = 4.0 + (incl_deg * 16.0 / 90.0);
-    Serial.println("Inclinaison: " + String(inclinaison) + " deg, Current: " + String(incl_mA) + " mA");
     if (incl_mA > 20.0) incl_mA = 20.0;
     if (incl_mA < 4.0) incl_mA = 4.0;
 
