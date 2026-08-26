@@ -4,7 +4,6 @@
 #include "UNIT_EXT_ENCODER.h"
 #include "TCA9548.h"
 #include <RunningMedian.h>
-#include <DFRobot_GP8302.h>
 #include <ModbusRTUSlave.h>
 #include <math.h>
 #include "filter.h"
@@ -32,10 +31,6 @@ byte max_channel = 2;
 #define ENC_ADDR 0x59
 #define UPDATE_PERIOD_US 5000 //5ms
 #define DAC_ADDR 0x58 //DAC address GP8302
-
-//define DAC object
-DFRobot_GP8302 dac_speed;
-DFRobot_GP8302 dac_incl;
 
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(7);
@@ -74,19 +69,10 @@ float readADC() {
   int length = 2;
   Wire.requestFrom(ADC_ADDR, length);
   int16_t raw = (Wire.read() << 8) | Wire.read() ;
-  //Serial.println("raw adc : "+String(raw));
-  return raw*12440.0/8192; //max scale is 12450mV and max output 8192
+  int16_t min_code = 8192; //14bit 60fps
+  float deltaV = raw * 2.048 / min_code; //conversion ADS1110 in datasheet
+  return deltaV * 6.1; //m5stack ADCv1.1 has a tension diviser made by 510k and 100k resitor (510+100) / 100
 }
-
-/*uint32_t readEncoder(bool mm=false) {
-  int register_address = 0x00; // pulse value
-  if(mm) register_address = 0x10; // meter value
-  Wire.beginTransmission(ENC_ADDR);
-  Wire.write(register_address); // register 0
-  Wire.endTransmission(true);
-  Wire.requestFrom(UNIT_EXT_ENCODER_ADDR, (uint8_t)4);
-  return (int32_t)((Wire.read() << 24) | (Wire.read() << 16) | (Wire.read() << 8) | Wire.read());
-}*/
 
 uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
   if (channel >= max_channel) {
