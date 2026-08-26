@@ -1,4 +1,4 @@
-#include <Lift.h>
+#include "Lift.h"
 #include <Arduino.h>
 #include <Ewma.h>
 #include <Wire.h>
@@ -24,22 +24,26 @@ static uint16_t readRegister(uint8_t i2cAddress)
     return (int16_t)((Wire.read() << 8) | Wire.read());
 }
 
+float readADC() {
+  int length = 2;
+  Wire.requestFrom(ADC_ADDR, length);
+  int16_t raw = (Wire.read() << 8) | Wire.read() ;
+  int16_t min_code = 8192; //14bit 60fps
+  float deltaV = raw * 2.048 / min_code; //conversion ADS1110 in datasheet
+  return deltaV * 6.1; //m5stack ADCv1.1 has a tension diviser made by 510k and 100k resitor (510+100) / 100
+}
 
-Lift::Lift (char inclinometerPin, char upPin, char downPin, char speedPin, bool i2c) {
-    this->i2c = i2c;
-    if(i2c) {
-        //init i2c
-        Wire.begin();
-        //send ADC configuration to inclinometer
-        const uint8_t config = 0x84; // 1000 0100 see ADC1110 datasheet : 60fps continuous mode
-        writeRegister(ADC_I2C_ADDRESS, config);
-    }
-    else {
-        this->inclinometerPin = inclinometerPin;
-    }
+char writeDAC(uint16_t value) {
+  Wire.beginTransmission(DAC_ADDR);
+  Wire.write(0x02);                   // Registre de sortie DAC
+  Wire.write((value << 4) & 0xFF);  // Poids faible (décalé de 4 bits à gauche)
+  Wire.write((value >> 4) & 0xFF);  // Poids fort
+  Wire.endTransmission();
+}
+
+Lift::Lift(char upPin, char downPin) {
     this->upPin = upPin;
     this->downPin = downPin;
-    this->speedPin = speedPin;
     //make sure lift is stopped
     stop();
     //measure current position
@@ -52,27 +56,11 @@ Lift::~Lift() {
 
 void Lift::update() {
     //read sensor value
-    if(i2c) {
-        sensorValueRaw = readRegister(ADC_I2C_ADDRESS);
-    }
-    else {
-        sensorValueRaw  = analogRead(inclinometerPin);
-    }
+    sensorValueRaw = readADC();
     //apply ewma filter
     sensorValue = ewmaFilterIn.filter(sensorValueRaw);
     //convert sensor value to angle
-    float temp;
-    if (i2c) {
-        //map 14bit sensor value to 0-180° - 14bit @60fps
-        temp = sensorValue * 180 / 4096;
-        inclinaison_deg = temp * ANALOG_TO_ANGLE_GAIN_I2C + ANALOG_TO_ANGLE_OFFSET_I2C;
-    } else {
-        //map 10bit sensor value to 0-180°
-        temp = sensorValue * 180 / 1023;
-        inclinaison_deg = temp * ANALOG_TO_ANGLE_GAIN + ANALOG_TO_ANGLE_OFFSET;
-    }
-    //Serial.println("sensorValue:"+String(sensorValueRaw)+"\tsensorValueFiltered:"+String(sensorValue)+"\tangle:"+String(temp));
-    inclinaison_deg = temp * ANALOG_TO_ANGLE_GAIN + ANALOG_TO_ANGLE_OFFSET;
+    inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + ANALOG_TO_ANGLE_OFFSET;
     height_mm = computeHeight(inclinaison_deg);
 }
 
@@ -91,7 +79,6 @@ float Lift::getSensorValue(bool raw) {
         return sensorValue;
     }
 }
-
 
 float Lift::computeHeight(float angle_deg) {
     auto angle2mm = [](float angle) {

@@ -1,4 +1,3 @@
-
 //Constant physical and electrical parameters
 #define ANALOG_TO_ANGLE_GAIN 1.071819024
 #define ANALOG_TO_ANGLE_OFFSET -2.772616596
@@ -13,12 +12,15 @@
 #define THRESHOLD_ANGLE_DEG 78
 #define SLOPE_MM_PER_DEG 6.3853
 
+#define ADC_ADDR 0x48
+#define DAC_ADDR 0x58 //DAC address GP8302
+
 //define a class to manage the lift of the custom project le mur
 class Lift {
     float inclinaison_deg;
     float height_mm;
     public :
-        Lift(char upPin, char downPin, char ADC_ADR, char DAC_ADR);
+        Lift(char upPin, char downPin);
         ~Lift();    
         void update();
         float getInclinaison_deg();
@@ -35,11 +37,8 @@ class Lift {
         float sensorValue;
         int sensorValueRaw;
         //pins
-        char inclinometerPin;
-        bool i2c;
         char upPin;
         char downPin;
-        char speedPin;
         //Fonction to convert angle to height
         float horizontalPosition(float angle_deg);
 };
