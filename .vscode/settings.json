@@ -1,3 +1,9 @@
 {
-    "cmake.sourceDirectory": "C:/Users/jparent1/Documents/GitHub/ISSUL-LeMur-RS485-to-VICON/.pio/libdeps/m5stack-atom/FastLED"
+    "clangd.arguments": [
+        "--query-driver=/home/jejmule/.platformio/packages/toolchain-xtensa-esp32/bin/xtensa-esp32-elf-*,**/*xtensa*",
+        "--compile-commands-dir=${workspaceFolder}",
+        "--background-index",
+        "--header-insertion=never"
+    ],
+    "C_Cpp.intelliSenseEngine": "disabled"
 }

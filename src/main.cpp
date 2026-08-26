@@ -8,6 +8,9 @@
 #include <math.h>
 #include "filter.h"
 #include "teleplot.h"
+#include <DFRobot_GP8XXX.h>
+#include "Lift.h"
+
 //i2c wire communication
 #define I2C_FREQ 400000UL
 #define SDA 25
