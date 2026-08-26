@@ -144,7 +144,7 @@ void setup() {
   slave.setCoils(coils, NUM_COILS);
   slave.setHoldingRegisters(registers,1); //set holding register to store current feedback speed
   
-
+  delay(1000); //avoid initialisation errors
   //I2C communication
   //Wire.begin(SDA, SCL);
   Wire.setClock(I2C_FREQ);  //update clock
