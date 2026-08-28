@@ -3,11 +3,10 @@
 #include <Arduino.h>
 #include <DFRobot_GP8XXX.h>
 
-// Constant physical and electrical parameters (Baumer GIM500R: 0-10V -> 0-180 deg)
-#define GIM500R_MAX_VOLTAGE_V    10.0f
-#define GIM500R_MAX_ANGLE_DEG    180.0f
-#define ANALOG_TO_ANGLE_GAIN     (GIM500R_MAX_ANGLE_DEG / GIM500R_MAX_VOLTAGE_V) // 18.0f deg/V
-#define ANALOG_TO_ANGLE_OFFSET   0.0f                                            // 0.0 deg
+// Constant physical and electrical parameters (Calibration Baumer GIM500R via ADS1110)
+// Regression R² = 0.999995 | RMSE = 0.066 deg | Max Error = 0.098 deg (lift-calibration.txt)
+#define ANALOG_TO_ANGLE_GAIN     19.057528f   // deg/V
+#define ANALOG_TO_ANGLE_OFFSET   -2.793855f   // deg
 #define ANALOG_TO_ANGLE_GAIN_I2C 1.0f
 #define ANALOG_TO_ANGLE_OFFSET_I2C 0.0f
 #define BELT_LENGTH_MM           2630.0f
