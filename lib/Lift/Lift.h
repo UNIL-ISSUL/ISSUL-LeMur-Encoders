@@ -62,7 +62,7 @@ public:
 
 private:
     float sensorValue;
-    int sensorValueRaw;
+    float sensorValueRaw;
     char upPin;
     char downPin;
     uint8_t dacAddress;

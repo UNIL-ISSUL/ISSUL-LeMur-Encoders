@@ -25,7 +25,7 @@ Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR) {
     this->downPin = downPin;
     this->dacAddress = DAC_ADDR;
     sensorValue = 0.0f;
-    sensorValueRaw = 0;
+    sensorValueRaw = 0.0f;
     inclinaison_deg = 0.0f;
     height_mm = 0.0f;
 }
