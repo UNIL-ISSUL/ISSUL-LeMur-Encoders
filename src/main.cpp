@@ -155,7 +155,7 @@ void loop() {
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
 
     // 4. Update Lift sensor & compute PID (Main I2C bus via 3-way Hub)
-    bool belt_moving = (fabs(filtered_belt_speed) > 2.0f) || (fabs(filtered_steps_speed) > 2.0f);
+    bool belt_moving = (fabs(filtered_belt_speed) > 0.1f) || (fabs(filtered_steps_speed) > 0.1f);
     i2cMultiplexer.disableAllChannels();
     delayMicroseconds(10);
     lift.update(belt_moving);
@@ -225,6 +225,7 @@ void loop() {
         teleplot_print("Lift_Motor", liftOutput, now, "%");
         teleplot_print("DAC_Speed_mA", speed_mA, now, "mA");
         teleplot_print("DAC_Incl_mA", incl_mA, now, "mA");
+        teleplot_print("Belt_Moving", belt_moving ? 1.0f : 0.0f, now, "state");
         teleplot_print_text("Status_Encoder", coils[0] ? "STEPS" : "BELT", now);
         teleplot_print_text("Status_Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now);
 
