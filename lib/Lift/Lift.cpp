@@ -91,10 +91,11 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
     return LIFT_OK;
 }
 
-void Lift::update() {
+void Lift::update(bool belt_running) {
     sensorValueRaw = readADC();
     sensorValue = ewmaFilterIn.filter(sensorValueRaw);
-    inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + ANALOG_TO_ANGLE_OFFSET;
+    float offset = belt_running ? ANALOG_TO_ANGLE_OFFSET_RUN : ANALOG_TO_ANGLE_OFFSET_STOP;
+    inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + offset;
     height_mm = computeHeight(inclinaison_deg);
 }
 
