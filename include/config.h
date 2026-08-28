@@ -4,8 +4,9 @@
 // ============================================================================
 // COMMUNICATION & BAUDRATES
 // ============================================================================
-#define DEBUG_BAUDRATE        460800UL   // USB Serial debug & Teleplot stream
+#define DEBUG_BAUDRATE        115200UL   // USB Serial debug & Teleplot stream
 #define MODBUS_BAUDRATE       19200UL    // RS485 Modbus RTU communication
+#define TELEPLOT_BATCH_SIZE   10         // Batch size for 200Hz Teleplot stream (50ms)
 
 // ============================================================================
 // PIN DEFINITIONS (M5Stack ATOM)

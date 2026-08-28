@@ -12,6 +12,7 @@
 #include <DFRobot_GP8XXX.h>
 #include <QuickPID.h>
 #include "Lift.h"
+#include "system_init.h"
 
 // Lift instance & PID
 Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN);
@@ -81,19 +82,7 @@ uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer, bool mm = false) {
 
 // Helper: Output 4-20mA current via DFR0972 DAC on multiplexer
 void set_DFR0972_mA(uint8_t channel, float current_mA, uint16_t dac_4mA, uint16_t dac_20mA) {
-  i2cMultiplexer.selectChannel(channel);
-  delayMicroseconds(50);
-  
-  if (current_mA < CURRENT_MIN_MA) current_mA = CURRENT_MIN_MA;
-  if (current_mA > CURRENT_MAX_MA) current_mA = CURRENT_MAX_MA;
-  
-  uint16_t dac_val = dac_4mA + ((current_mA - CURRENT_MIN_MA) * (float)(dac_20mA - dac_4mA) / 16.0f);
-  
-  Wire.beginTransmission(I2C_DAC_ADDR);
-  Wire.write(0x02);
-  Wire.write((dac_val << 4) & 0xFF);
-  Wire.write((dac_val >> 4) & 0xFF);
-  Wire.endTransmission();
+  set_DFR0972_mA(i2cMultiplexer, channel, current_mA, dac_4mA, dac_20mA);
 }
 
 // Helper: Compute encoder speed in pulses per second
@@ -104,103 +93,27 @@ float compute_encoder_speed(int32_t delta_count, uint32_t delta_time) {
 }
 
 void setup() {
-  // Initialize M5Atom
+  // 1. Initialize M5Atom core
   M5.begin(false, true, true);
-  Serial.begin(DEBUG_BAUDRATE);
-  Serial.setTimeout(10); // Non-blocking short timeout
-  Serial.flush();
-  delay(100);
-  Serial.println("M5Atom initialized @ " + String(DEBUG_BAUDRATE) + " baud");
 
-  // Initialize Modbus RTU Slave
-  Serial2.begin(MODBUS_BAUDRATE, SERIAL_8E1, MODBUS_RX_PIN, MODBUS_TX_PIN);
-  slave.begin(MODBUS_BAUDRATE);
-  slave.setCoils(coils, MODBUS_NUM_COILS);
-  slave.setHoldingRegisters(registers, MODBUS_NUM_REGISTERS);
-  
-  delay(1000); // Avoid power-on bus glitches
-
-  // I2C communication
-  Wire.setClock(I2C_FREQ_HZ);
-  uint8_t i2c_error = 0;
-
-  // Initialize I2C Multiplexer
-  if (i2cMultiplexer.begin()) {
-    Serial.println("I2C Multiplexer initialized");
-  } else {
-    Serial.println("I2C Multiplexer initialization failed");
-    i2c_error++;
-  }
-
-  // Detect and initialize encoders
-  for (int i = 0; i < max_channel; i++) {
-    i2cMultiplexer.selectChannel(i);
-    bool connected = i2cMultiplexer.isConnected(I2C_ENC_ADDR);
-    if (connected) {
-      Serial.println("Encoder device found on channel " + String(i));
-      encoders[i].begin(&Wire, I2C_ENC_ADDR, I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ_HZ);
-      Serial.println("Encoder initialized");
-    } else {
-      Serial.println("Encoder device not found on channel " + String(i));
-      i2c_error++;
+  // 2. Perform full system diagnostics, sensor scan and hardware timer startup
+  if (!system_hardware_init(i2cMultiplexer, encoders, max_channel, lift, slave, coils, registers, timer, onTimer)) {
+    while (1) {
+      delay(500);
     }
   }
 
-  // Verify 4-20mA DAC devices
-  for (int i = 2; i < 4; i++) {
-    i2cMultiplexer.selectChannel(i);
-    if (i2cMultiplexer.isConnected(I2C_DAC_ADDR)) {
-      Serial.println("DAC device found on channel " + String(i));
-    } else {
-      Serial.println("DAC device not found on channel " + String(i));
-      i2c_error++;
-    }
-  }
-
-  // Initialize Lift hardware (GP8413 10V DAC + ADS1110 240fps ADC)
-  if (lift.init() != 0) {
-    Serial.println("Lift initialization failed");
-    i2c_error++;
-  } else {
-    Serial.println("Lift initialized");
-  }
-
-  // Configure Lift PID
+  // 3. Configure Lift PID
   liftPID.SetTunings(liftKp, liftKi, liftKd);
   liftPID.SetSampleTimeUs(UPDATE_PERIOD_US);
   liftPID.SetOutputLimits(LIFT_PID_OUT_MIN, LIFT_PID_OUT_MAX);
   liftPID.SetDerivativeMode(QuickPID::dMode::dOnMeas);
-  liftPID.SetMode(QuickPID::Control::manual); // Start in safe manual mode
+  liftPID.SetMode(QuickPID::Control::manual);
   lift.stop();
-
-  // Warm up Lift sensor and initialize setpoint
-  for (int i = 0; i < 50; i++) {
-    lift.update();
-    delay(2);
-  }
   liftSetpoint = lift.getHeight_mm();
   liftInput = liftSetpoint;
-  uint16_t init_angle_centideg = (uint16_t)constrain(round(lift.getInclinaison_deg() * 100.0f), 0, 9000);
-  registers[1] = init_angle_centideg;
-  registers[2] = init_angle_centideg;
 
-  // Abort if I2C bus error detected
-  if (i2c_error > 0) {
-    Serial.println("I2C initialisation " + String(i2c_error) + " error detected : Stopping execution");
-    M5.dis.drawpix(0, CRGB::Red);
-    while (1);
-  }
-  
-  // Initialize hardware timer @ 200 Hz (5ms)
-  timer = timerBegin(3, 80, true);
-  timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, UPDATE_PERIOD_US, true);
-  timerAlarmEnable(timer);
-
-  // Initialize LED display
-  M5.dis.drawpix(0, CRGB::Green);
-
-  // Initialize digital filters
+  // 4. Initialize digital speed filters
   belt_speed_filter.init(filter_order, b_coeffs, a_coeffs);
   encoder_speed_filter.init(filter_order, b_coeffs, a_coeffs);
 }
@@ -277,26 +190,42 @@ void loop() {
     // 9. Reset flag
     flag_read_encoder = false;
 
-    // 10. Real-time Teleplot streaming @ 200 Hz
+    // 10. Real-time Teleplot streaming with 10-sample batching (50ms packets @ 115200 baud)
     if (debug) {
+      static uint32_t batch_timestamps[TELEPLOT_BATCH_SIZE];
+      static float batch_belt_raw[TELEPLOT_BATCH_SIZE];
+      static float batch_belt_filt[TELEPLOT_BATCH_SIZE];
+      static float batch_steps_raw[TELEPLOT_BATCH_SIZE];
+      static float batch_steps_filt[TELEPLOT_BATCH_SIZE];
+      static uint8_t batch_count = 0;
+
       uint32_t now = millis();
-      // Speeds group
-      teleplot_print_group("Speed", "Belt", belt_encoder_speed, now, "mm/s");
-      teleplot_print_group("Speed", "Steps", steps_encoder_speed, now, "mm/s");
-      
-      // Lift Height & Control group
-      teleplot_print_group("Lift_Height", "Measured", liftInput, now, "mm");
-      teleplot_print_group("Lift_Height", "Setpoint", liftSetpoint, now, "mm");
-      teleplot_print_group("Lift_Angle", "Inclinaison", incl_deg, now, "deg");
-      teleplot_print_group("Lift_Motor", "Output", liftOutput, now, "%");
+      batch_timestamps[batch_count] = now;
+      batch_belt_raw[batch_count] = belt_encoder_speed;
+      batch_belt_filt[batch_count] = filtered_belt_speed;
+      batch_steps_raw[batch_count] = steps_encoder_speed;
+      batch_steps_filt[batch_count] = filtered_steps_speed;
+      batch_count++;
 
-      // 4-20mA DAC Feedback group
-      teleplot_print_group("DAC_4_20mA", "Speed_mA", speed_mA, now, "mA");
-      teleplot_print_group("DAC_4_20mA", "Incl_mA", incl_mA, now, "mA");
+      if (batch_count >= TELEPLOT_BATCH_SIZE) {
+        // High-speed 200 Hz encoder batches (10 points every 50ms - 100% glitch resolution)
+        teleplot_print_batch("Speed/Belt_Raw", batch_belt_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Speed/Belt_Filt", batch_belt_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Speed/Steps_Raw", batch_steps_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Speed/Steps_Filt", batch_steps_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
 
-      // System states (text telemetry)
-      teleplot_print_text("Encoder_Mode", coils[0] ? "STEPS" : "BELT", now, "Status");
-      teleplot_print_text("Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now, "Status");
+        // 20 Hz low-frequency curves (Lift, DACs, and Status)
+        teleplot_print_group("Lift_Height", "Measured", liftInput, now, "mm");
+        teleplot_print_group("Lift_Height", "Setpoint", liftSetpoint, now, "mm");
+        teleplot_print_group("Lift_Angle", "Inclinaison", incl_deg, now, "deg");
+        teleplot_print_group("Lift_Motor", "Output", liftOutput, now, "%");
+        teleplot_print_group("DAC_4_20mA", "Speed_mA", speed_mA, now, "mA");
+        teleplot_print_group("DAC_4_20mA", "Incl_mA", incl_mA, now, "mA");
+        teleplot_print_text("Encoder_Mode", coils[0] ? "STEPS" : "BELT", now, "Status");
+        teleplot_print_text("Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now, "Status");
+
+        batch_count = 0;
+      }
     }
   }
   // --------------------------------------------------------------------------
