@@ -15,7 +15,7 @@
 #include "system_init.h"
 
 // Lift instance & PID
-Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN);
+Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN, I2C_LIFT_DAC_ADDR);
 float liftSetpoint = 0.0f, liftInput = 0.0f, liftOutput = 0.0f;
 float liftKp = LIFT_PID_KP_DEFAULT, liftKi = LIFT_PID_KI_DEFAULT, liftKd = LIFT_PID_KD_DEFAULT;
 QuickPID liftPID(&liftInput, &liftOutput, &liftSetpoint);
@@ -154,7 +154,9 @@ void loop() {
     float filtered_belt_speed = belt_speed_filter.filter(belt_encoder_speed);
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
 
-    // 4. Update Lift sensor & compute PID
+    // 4. Update Lift sensor & compute PID (Main I2C bus via 3-way Hub)
+    i2cMultiplexer.disableAllChannels();
+    delayMicroseconds(10);
     lift.update();
     liftInput = lift.getHeight_mm();
     if (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) {

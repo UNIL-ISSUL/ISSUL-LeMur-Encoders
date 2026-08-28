@@ -28,19 +28,17 @@
 // I2C ADDRESSES & MULTIPLEXER (TCA9548)
 // ============================================================================
 #define I2C_MUX_ADDR          0x70       // TCA9548 Multiplexer address
-#define I2C_ENC_ADDR          0x59       // M5Unit-ExtEncoder address
-#define I2C_ADC_ADDR          0x48       // ADS1110 ADC address (Lift angle)
-#define I2C_DAC_ADDR          0x58       // GP8413 10V DAC (Lift) & DFR0972 4-20mA
+#define I2C_ENC_ADDR          0x59       // M5Unit-ExtEncoder address (on PaHub ports 0 & 1)
+#define I2C_ADC_ADDR          0x48       // ADS1110 ADC address (Lift angle on main bus)
+#define I2C_LIFT_DAC_ADDR     0x58       // GP8413 10V DAC (Lift on main bus: 0x58 for 000, 0x5A for 010)
+#define I2C_DAC_ADDR          0x58       // DFR0972 4-20mA DACs (on PaHub ports 2 & 3)
 
-// TCA9548 Multiplexer Channels (PaHub 6 Ports: 0 to 5)
+// TCA9548 Multiplexer Channels (PaHub Ports: 0 to 3)
 #define MUX_CH_BELT_ENC       0          // Port 0: Belt encoder (0x59)
 #define MUX_CH_STEPS_ENC      1          // Port 1: Steps encoder (0x59)
 #define MUX_CH_SPEED_DAC      2          // Port 2: 4-20mA Speed DAC (0x58)
 #define MUX_CH_INCL_DAC       3          // Port 3: 4-20mA Inclination DAC (0x58)
-#define MUX_CH_LIFT_DAC       4          // Port 4: 0-10V Lift GP8413 DAC (0x58)
-#define MUX_CH_LIFT_ADC       5          // Port 5: Lift Inclinometer ADS1110 ADC (0x48)
 #define MUX_MAX_ENC_CHANNELS  2
-#define MUX_TOTAL_CHANNELS    6
 
 // ============================================================================
 // TIMING & REAL-TIME PARAMETERS

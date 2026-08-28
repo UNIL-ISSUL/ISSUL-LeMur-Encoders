@@ -1,5 +1,4 @@
 #include "Lift.h"
-#include "TCA9548.h"
 #include <Arduino.h>
 #include <Ewma.h>
 #include <Wire.h>
@@ -10,10 +9,6 @@ Ewma ewmaFilterIn(0.01);
 Ewma ewmaFilterOut(0.01);
 
 float Lift::readADC() {
-  if (_mux) {
-    _mux->selectChannel(_adcChannel);
-    delayMicroseconds(20);
-  }
   const int length = 2;
   uint8_t received = Wire.requestFrom((int)ADC_ADDR, length);
   if (received < 2) {
@@ -29,9 +24,6 @@ Lift::Lift(char upPin, char downPin, uint8_t dacAddr) : GP8413(dacAddr) {
     this->upPin = upPin;
     this->downPin = downPin;
     this->dacAddress = dacAddr;
-    this->_mux = nullptr;
-    this->_dacChannel = 4;
-    this->_adcChannel = 5;
     sensorValue = 0.0f;
     sensorValueRaw = 0;
     inclinaison_deg = 0.0f;
@@ -42,16 +34,10 @@ Lift::~Lift() {
     stop();
 }
 
-void Lift::setMultiplexer(TCA9548 *mux, uint8_t dacChannel, uint8_t adcChannel) {
-    this->_mux = mux;
-    this->_dacChannel = dacChannel;
-    this->_adcChannel = adcChannel;
-}
-
 const char* Lift::getStatusMessage(int code) {
     switch (code) {
         case LIFT_OK:                 return "OK";
-        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-10V DAC (0x58) NOT FOUND";
+        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-10V DAC NOT FOUND";
         case LIFT_ERR_ADC_NOT_FOUND:  return "ADS1110 ADC (0x48) NOT FOUND";
         case LIFT_ERR_ADC_CONFIG_FAIL:return "ADS1110 ADC config write failed";
         case LIFT_ERR_ADC_READ_FAIL:  return "ADS1110 ADC reading failed";
@@ -60,17 +46,9 @@ const char* Lift::getStatusMessage(int code) {
 }
 
 int Lift::checkHardware(bool &dac_ok, bool &adc_ok) {
-    if (_mux) {
-        _mux->selectChannel(_dacChannel);
-        delayMicroseconds(20);
-    }
     Wire.beginTransmission(dacAddress);
     dac_ok = (Wire.endTransmission() == 0);
 
-    if (_mux) {
-        _mux->selectChannel(_adcChannel);
-        delayMicroseconds(20);
-    }
     Wire.beginTransmission(ADC_ADDR);
     adc_ok = (Wire.endTransmission() == 0);
 
@@ -85,11 +63,7 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
     digitalWrite(upPin, LOW);
     digitalWrite(downPin, LOW);
 
-    // 1. Initialize DAC GP8413 (0x58)
-    if (_mux) {
-        _mux->selectChannel(_dacChannel);
-        delayMicroseconds(20);
-    }
+    // 1. Initialize DAC GP8413
     Wire.beginTransmission(dacAddress);
     if (Wire.endTransmission() != 0) {
         return LIFT_ERR_DAC_NOT_FOUND;
@@ -102,10 +76,6 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
     setSpeed(0);
 
     // 2. Initialize and configure ADC ADS1110 (0x48) (240fps continuous mode, PGA=1)
-    if (_mux) {
-        _mux->selectChannel(_adcChannel);
-        delayMicroseconds(20);
-    }
     Wire.beginTransmission(ADC_ADDR);
     if (Wire.endTransmission() != 0) {
         return LIFT_ERR_ADC_NOT_FOUND;
@@ -161,10 +131,6 @@ float Lift::horizontalPosition(float angle_deg) {
 }
 
 void Lift::setSpeed(float speed_pct) {
-    if (_mux) {
-        _mux->selectChannel(_dacChannel);
-        delayMicroseconds(20);
-    }
     float pct = constrain(fabs(speed_pct), 0.0f, 100.0f);
     float dac_val_f = (pct / 100.0f) * 32767.0f * SPEED_TO_ANALOG_GAIN + SPEED_TO_ANALOG_OFFSET;
     uint16_t dac_val = (uint16_t)constrain(round(dac_val_f), 0, 32767);
