@@ -37,7 +37,7 @@ Lift::~Lift() {
 const char* Lift::getStatusMessage(int code) {
     switch (code) {
         case LIFT_OK:                 return "OK";
-        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-10V DAC NOT FOUND";
+        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-5V DAC (0x59) NOT FOUND";
         case LIFT_ERR_ADC_NOT_FOUND:  return "ADS1110 ADC (0x48) NOT FOUND";
         case LIFT_ERR_ADC_CONFIG_FAIL:return "ADS1110 ADC config write failed";
         case LIFT_ERR_ADC_READ_FAIL:  return "ADS1110 ADC reading failed";

@@ -101,9 +101,9 @@ bool system_hardware_init(
   bool dac_ok = false, adc_ok = false;
   lift.checkHardware(dac_ok, adc_ok);
   if (dac_ok) {
-    Serial.println("      GP8413 0-10V DAC found (0x" + String(I2C_LIFT_DAC_ADDR, HEX) + ")");
+    Serial.println("      GP8413 0-5V DAC found (0x" + String(I2C_LIFT_DAC_ADDR, HEX) + ")");
   } else {
-    Serial.println("      ❌ GP8413 0-10V DAC NOT FOUND (0x" + String(I2C_LIFT_DAC_ADDR, HEX) + ")");
+    Serial.println("      ❌ GP8413 0-5V DAC NOT FOUND (0x" + String(I2C_LIFT_DAC_ADDR, HEX) + ")");
     i2c_error++;
   }
 
@@ -115,7 +115,7 @@ bool system_hardware_init(
   }
 
   if (dac_ok && adc_ok) {
-    int lift_status = lift.init();
+    int lift_status = lift.init(DFRobot_GP8XXX::eOutputRange5V);
     if (lift_status != 0) {
       Serial.println("      ❌ Lift config failed: " + String(Lift::getStatusMessage(lift_status)));
       i2c_error++;

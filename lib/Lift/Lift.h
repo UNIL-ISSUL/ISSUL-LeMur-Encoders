@@ -32,7 +32,7 @@
 // Detailed diagnostic status codes
 enum LiftStatus {
     LIFT_OK = 0,
-    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-10V DAC (0x59) not responding
+    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-5V DAC (0x59) not responding
     LIFT_ERR_ADC_NOT_FOUND = 2,       // ADS1110 ADC (0x48) not responding
     LIFT_ERR_ADC_CONFIG_FAIL = 3,     // ADS1110 config write failed
     LIFT_ERR_ADC_READ_FAIL = 4        // ADS1110 reading returned invalid data
@@ -44,7 +44,7 @@ class Lift {
 public:
     Lift(char upPin, char downPin);
     ~Lift();
-    int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange10V);
+    int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange5V);
     int checkHardware(bool &dac_ok, bool &adc_ok);
     static const char* getStatusMessage(int code);
     void update();
