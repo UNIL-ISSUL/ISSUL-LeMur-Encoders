@@ -65,7 +65,7 @@
 // ============================================================================
 // LIFT PID REGULATION PARAMETERS
 // ============================================================================
-#define LIFT_PID_KP_DEFAULT   0.4f
+#define LIFT_PID_KP_DEFAULT   0.2f
 #define LIFT_PID_KI_DEFAULT   0.0f
 #define LIFT_PID_KD_DEFAULT   0.0f
 #define LIFT_PID_OUT_MIN      -100.0f    // -100% to +100%
