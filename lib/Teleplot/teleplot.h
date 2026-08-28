@@ -2,10 +2,13 @@
  * @file teleplot.h
  * @brief Teleplot communication functions for data visualization
  * 
- * This file contains functions to send data to Teleplot visualization tool
- * in the correct format. Supports single values and multiple values as arrays.
- * 
- * Teleplot format: >name:timestamp:value1;timestamp:value2;timestamp:value3
+ * Supports:
+ * - Single float / int values with optional unit and flags
+ * - Grouped curves on the same chart (group/name)
+ * - Text & state annotations (|t)
+ * - 2D XY plots (|xy)
+ * - Array of values at instant t (emitted as group/index)
+ * - Time-series historical batch (t0:v0;t1:v1;...)
  */
 
 #ifndef TELEPLOT_H
@@ -13,57 +16,30 @@
 
 #include <Arduino.h>
 
-/**
- * @brief Send a single integer value to Teleplot
- * @param text The variable name/label for the plot
- * @param data The integer value to send
- * @param timestamp The timestamp in milliseconds
- */
-void teleplot_print(String text, int data, uint32_t timestamp);
+// Single value plotting
+void teleplot_print(const String &name, float value, uint32_t timestamp = 0, const String &unit = "", const String &flags = "");
+void teleplot_print(const String &name, int32_t value, uint32_t timestamp = 0, const String &unit = "", const String &flags = "");
 
-/**
- * @brief Send a single float value to Teleplot
- * @param text The variable name/label for the plot
- * @param data The float value to send
- * @param timestamp The timestamp in milliseconds
- */
-void teleplot_print(String text, float data, uint32_t timestamp);
+// Grouped plotting: superimposes curves on the same chart under "group"
+void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp = 0, const String &unit = "");
+void teleplot_print_group(const String &group, const String &name, int32_t value, uint32_t timestamp = 0, const String &unit = "");
 
-/**
- * @brief Send multiple float values to Teleplot as an array
- * @param text The variable name/label for the plot
- * @param data Array of float values to send
- * @param count Number of elements in the array
- * @param timestamp The timestamp in milliseconds
- */
-void teleplot_print(String text, const float data[], int count, uint32_t timestamp);
+// Text & State plotting (renders as text indicator / log in Teleplot using |t)
+void teleplot_print_text(const String &name, const String &text_value, uint32_t timestamp = 0, const String &group = "");
 
-/**
- * @brief Send multiple integer values to Teleplot as an array
- * @param text The variable name/label for the plot
- * @param data Array of integer values to send
- * @param count Number of elements in the array
- * @param timestamp The timestamp in milliseconds
- */
-void teleplot_print(String text, const int data[], int count, uint32_t timestamp);
+// 2D XY Plot (|xy)
+void teleplot_print_xy(const String &name, float x, float y);
 
-/**
- * @brief Template function for automatic array size detection
- * @tparam T Data type (int, float, etc.)
- * @tparam N Array size (automatically detected)
- * @param text The variable name/label for the plot
- * @param data Array of values to send
- * @param timestamp The timestamp in milliseconds
- */
-template<typename T, int N>
-void teleplot_print(String text, const T (&data)[N], uint32_t timestamp) {
-  teleplot_print(text, data, N, timestamp);
+// Array of values at instant t (emitted as group/0, group/1, ...)
+void teleplot_print_array(const String &group, const float data[], size_t count, uint32_t timestamp = 0, const String &unit = "");
+void teleplot_print_array(const String &group, const int32_t data[], size_t count, uint32_t timestamp = 0, const String &unit = "");
+
+template<typename T, size_t N>
+void teleplot_print_array(const String &group, const T (&data)[N], uint32_t timestamp = 0, const String &unit = "") {
+  teleplot_print_array(group, data, N, timestamp, unit);
 }
 
-/**
- * @brief Example function showing different ways to use teleplot_print with arrays
- * Output format: >name:timestamp:value1;timestamp:value2;timestamp:value3
- */
-void teleplot_examples();
+// Time-series batch (t0:v0;t1:v1;...)
+void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit = "");
 
 #endif // TELEPLOT_H

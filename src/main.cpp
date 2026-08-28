@@ -280,17 +280,23 @@ void loop() {
     // 10. Real-time Teleplot streaming @ 200 Hz
     if (debug) {
       uint32_t now = millis();
-      teleplot_print("belt_speed", belt_encoder_speed, now);
-      //teleplot_print("belt_filtered_speed", filtered_belt_speed, now);
-      teleplot_print("steps_speed", steps_encoder_speed, now);
-      //teleplot_print("steps_filtered_speed", filtered_steps_speed, now);
-      teleplot_print("inclinaison", incl_deg, now);
-      teleplot_print("inclinaison_mA", incl_mA, now);
-      teleplot_print("speed_mA", speed_mA, now);
-      teleplot_print("lift_height", liftInput, now);
-      teleplot_print("lift_setpoint", liftSetpoint, now);
-      teleplot_print("lift_output", liftOutput, now);
-      teleplot_print("lift_inclinaison", lift.getInclinaison_deg(), now);
+      // Speeds group
+      teleplot_print_group("Speed", "Belt", belt_encoder_speed, now, "mm/s");
+      teleplot_print_group("Speed", "Steps", steps_encoder_speed, now, "mm/s");
+      
+      // Lift Height & Control group
+      teleplot_print_group("Lift_Height", "Measured", liftInput, now, "mm");
+      teleplot_print_group("Lift_Height", "Setpoint", liftSetpoint, now, "mm");
+      teleplot_print_group("Lift_Angle", "Inclinaison", incl_deg, now, "deg");
+      teleplot_print_group("Lift_Motor", "Output", liftOutput, now, "%");
+
+      // 4-20mA DAC Feedback group
+      teleplot_print_group("DAC_4_20mA", "Speed_mA", speed_mA, now, "mA");
+      teleplot_print_group("DAC_4_20mA", "Incl_mA", incl_mA, now, "mA");
+
+      // System states (text telemetry)
+      teleplot_print_text("Encoder_Mode", coils[0] ? "STEPS" : "BELT", now, "Status");
+      teleplot_print_text("Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now, "Status");
     }
   }
   // --------------------------------------------------------------------------

@@ -1,82 +1,110 @@
-/**
- * @file teleplot.cpp
- * @brief Implementation of Teleplot communication functions
- * 
- * This file implements functions to send data to Teleplot visualization tool
- * in the correct format. Supports single values and multiple values as arrays.
- */
-
 #include "teleplot.h"
 
-void teleplot_print(String text, int data, uint32_t timestamp) {
+// Format: >name:timestamp:value§unit|flags
+void teleplot_print(const String &name, float value, uint32_t timestamp, const String &unit, const String &flags) {
   Serial.print(">");
-  Serial.print(text);
+  Serial.print(name);
   Serial.print(":");
-  Serial.print(timestamp);
-  Serial.print(":");
-  Serial.println(data);
-}
-
-void teleplot_print(String text, float data, uint32_t timestamp) {
-  Serial.print(">");
-  Serial.print(text);
-  Serial.print(":");
-  Serial.print(timestamp);
-  Serial.print(":");
-  Serial.println(data);
-}
-
-void teleplot_print(String text, const float data[], int count, uint32_t timestamp) {
-  Serial.print(">");
-  Serial.print(text);
-  Serial.print(":");
-  for(int i = 0; i < count; i++) {
+  if (timestamp > 0) {
     Serial.print(timestamp);
     Serial.print(":");
-    Serial.print(data[i]);
-    if(i < count - 1) {
-      Serial.print(";");
-    }
+  }
+  Serial.print(value);
+  if (unit.length() > 0) {
+    Serial.print("§");
+    Serial.print(unit);
+  }
+  if (flags.length() > 0) {
+    Serial.print("|");
+    Serial.print(flags);
   }
   Serial.println();
 }
 
-void teleplot_print(String text, const int data[], int count, uint32_t timestamp) {
+void teleplot_print(const String &name, int32_t value, uint32_t timestamp, const String &unit, const String &flags) {
   Serial.print(">");
-  Serial.print(text);
+  Serial.print(name);
   Serial.print(":");
-  for(int i = 0; i < count; i++) {
+  if (timestamp > 0) {
     Serial.print(timestamp);
     Serial.print(":");
-    Serial.print(data[i]);
-    if(i < count - 1) {
-      Serial.print(";");
-    }
+  }
+  Serial.print(value);
+  if (unit.length() > 0) {
+    Serial.print("§");
+    Serial.print(unit);
+  }
+  if (flags.length() > 0) {
+    Serial.print("|");
+    Serial.print(flags);
   }
   Serial.println();
 }
 
-void teleplot_examples() {
-  uint32_t now = millis();
-  
-  // Example 1: Simple array declaration and call
-  // Output: >sensors:1234567:12.5;1234567:34.7;1234567:56.2;1234567:78.9
-  float sensor_data[] = {12.5, 34.7, 56.2, 78.9};
-  teleplot_print("sensors", sensor_data, 4, now);
-  
-  // Example 2: Using template version (automatic size detection)
-  // Output: >temp:1234567:25.3;1234567:26.1;1234567:24.8
-  float temperatures[] = {25.3, 26.1, 24.8};
-  teleplot_print("temp", temperatures, now); // No need to specify count
-  
-  // Example 3: Integer arrays
-  // Output: >digital:1234567:1;1234567:0;1234567:1;1234567:1;1234567:0
-  int digital_values[] = {1, 0, 1, 1, 0};
-  teleplot_print("digital", digital_values, 5, now);
-  
-  // Example 4: Your requested syntax example
-  // Output: >toto:1234567:10.5;1234567:20.3;1234567:30.7
-  float var1 = 10.5, var2 = 20.3, var3 = 30.7;
-  float toto_data[] = {var1, var2, var3};
-  teleplot_print("toto", toto_data, 3, now);
+void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp, const String &unit) {
+  String fullName = group + "/" + name;
+  teleplot_print(fullName, value, timestamp, unit);
+}
+
+void teleplot_print_group(const String &group, const String &name, int32_t value, uint32_t timestamp, const String &unit) {
+  String fullName = group + "/" + name;
+  teleplot_print(fullName, value, timestamp, unit);
+}
+
+void teleplot_print_text(const String &name, const String &text_value, uint32_t timestamp, const String &group) {
+  Serial.print(">");
+  if (group.length() > 0) {
+    Serial.print(group);
+    Serial.print("/");
+  }
+  Serial.print(name);
+  Serial.print(":");
+  if (timestamp > 0) {
+    Serial.print(timestamp);
+    Serial.print(":");
+  }
+  Serial.print(text_value);
+  Serial.println("|t");
+}
+
+void teleplot_print_xy(const String &name, float x, float y) {
+  Serial.print(">");
+  Serial.print(name);
+  Serial.print(":");
+  Serial.print(x);
+  Serial.print(":");
+  Serial.print(y);
+  Serial.println("|xy");
+}
+
+void teleplot_print_array(const String &group, const float data[], size_t count, uint32_t timestamp, const String &unit) {
+  for (size_t i = 0; i < count; i++) {
+    teleplot_print_group(group, String(i), data[i], timestamp, unit);
+  }
+}
+
+void teleplot_print_array(const String &group, const int32_t data[], size_t count, uint32_t timestamp, const String &unit) {
+  for (size_t i = 0; i < count; i++) {
+    teleplot_print_group(group, String(i), data[i], timestamp, unit);
+  }
+}
+
+void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit) {
+  if (count == 0) return;
+  Serial.print(">");
+  Serial.print(name);
+  Serial.print(":");
+  for (size_t i = 0; i < count; i++) {
+    Serial.print(timestamps[i]);
+    Serial.print(":");
+    Serial.print(data[i]);
+    if (i < count - 1) {
+      Serial.print(";");
+    }
+  }
+  if (unit.length() > 0) {
+    Serial.print("§");
+    Serial.print(unit);
+  }
+  Serial.println();
 }
