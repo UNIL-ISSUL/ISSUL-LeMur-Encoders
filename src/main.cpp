@@ -15,7 +15,7 @@
 #include "system_init.h"
 
 // Lift instance & PID
-Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN, I2C_LIFT_DAC_ADDR);
+Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN);
 float liftSetpoint = 0.0f, liftInput = 0.0f, liftOutput = 0.0f;
 float liftKp = LIFT_PID_KP_DEFAULT, liftKi = LIFT_PID_KI_DEFAULT, liftKd = LIFT_PID_KD_DEFAULT;
 QuickPID liftPID(&liftInput, &liftOutput, &liftSetpoint);

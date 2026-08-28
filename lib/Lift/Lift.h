@@ -24,13 +24,13 @@
 #define ADC_CONFIG_240FPS_PGA1 0x80 // 0b10000000 : 240 SPS continuous mode, PGA = 1
 
 #ifndef DAC_ADDR
-#define DAC_ADDR 0x58 // DAC address GP8413
+#define DAC_ADDR 0x59 // GP8413 0-10V DAC address (default: 0x59)
 #endif
 
 // Detailed diagnostic status codes
 enum LiftStatus {
     LIFT_OK = 0,
-    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-10V DAC (0x58) not responding
+    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-10V DAC (0x59) not responding
     LIFT_ERR_ADC_NOT_FOUND = 2,       // ADS1110 ADC (0x48) not responding
     LIFT_ERR_ADC_CONFIG_FAIL = 3,     // ADS1110 config write failed
     LIFT_ERR_ADC_READ_FAIL = 4        // ADS1110 reading returned invalid data
@@ -40,7 +40,7 @@ class Lift {
     float inclinaison_deg;
     float height_mm;
 public:
-    Lift(char upPin, char downPin, uint8_t dacAddr = DAC_ADDR);
+    Lift(char upPin, char downPin);
     ~Lift();
     int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange10V);
     int checkHardware(bool &dac_ok, bool &adc_ok);

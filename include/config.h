@@ -30,7 +30,7 @@
 #define I2C_MUX_ADDR          0x70       // TCA9548 Multiplexer address
 #define I2C_ENC_ADDR          0x59       // M5Unit-ExtEncoder address (on PaHub ports 0 & 1)
 #define I2C_ADC_ADDR          0x48       // ADS1110 ADC address (Lift angle on main bus)
-#define I2C_LIFT_DAC_ADDR     0x58       // GP8413 10V DAC (Lift on main bus: 0x58 for 000, 0x5A for 010)
+#define I2C_LIFT_DAC_ADDR     0x59       // GP8413 10V DAC (Lift on main bus, address: 0x59)
 #define I2C_DAC_ADDR          0x58       // DFR0972 4-20mA DACs (on PaHub ports 2 & 3)
 
 // TCA9548 Multiplexer Channels (PaHub Ports: 0 to 3)

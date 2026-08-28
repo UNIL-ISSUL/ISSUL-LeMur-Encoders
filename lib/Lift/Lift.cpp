@@ -20,10 +20,10 @@ float Lift::readADC() {
   return deltaV * 6.1f; // m5stack ADCv1.1 voltage divider (510k + 100k) / 100k = 6.1
 }
 
-Lift::Lift(char upPin, char downPin, uint8_t dacAddr) : GP8413(dacAddr) {
+Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR) {
     this->upPin = upPin;
     this->downPin = downPin;
-    this->dacAddress = dacAddr;
+    this->dacAddress = DAC_ADDR;
     sensorValue = 0.0f;
     sensorValueRaw = 0;
     inclinaison_deg = 0.0f;
