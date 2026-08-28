@@ -186,7 +186,9 @@ void loop() {
     set_DFR0972_mA(MUX_CH_SPEED_DAC, speed_mA, DFR0972_DAC_4MA_RAW, DFR0972_DAC_20MA_RAW);
     set_DFR0972_mA(MUX_CH_INCL_DAC, incl_mA, DFR0972_DAC_4MA_RAW, DFR0972_DAC_20MA_RAW);
 
-    // 8. Update Modbus holding registers
+    // 8. Update Modbus holding registers and encoder feedback coil
+    if (dac_value > 0) coils[1] = true;
+    else              coils[1] = false;
     registers[0] = dac_value;
     registers[2] = (uint16_t)constrain(round(incl_deg * 100.0f), 0, 9000);
 
@@ -251,18 +253,18 @@ void loop() {
       if (!debug) Serial.println("Modbus Encoder Mode: " + String(coils[0] ? "Steps" : "Belt"));
     }
 
-    // Coil 1: Lift PID Enable (Automatic vs Manual)
-    static bool last_coil1 = false;
-    if (coils[1] != last_coil1) {
-      last_coil1 = coils[1];
-      if (coils[1]) {
+    // Coil 2: Lift PID Enable (Automatic vs Manual)
+    static bool last_coil2 = false;
+    if (coils[2] != last_coil2) {
+      last_coil2 = coils[2];
+      if (coils[2]) {
         liftPID.Reset();
         liftPID.SetMode(QuickPID::Control::automatic);
-        if (!debug) Serial.println("Lift PID Auto mode enabled via Modbus (Coil 1 = 1)");
+        if (!debug) Serial.println("Lift PID Auto mode enabled via Modbus (Coil 2 = 1)");
       } else {
         liftPID.SetMode(QuickPID::Control::manual);
         lift.stop();
-        if (!debug) Serial.println("Lift PID Manual/Stop mode via Modbus (Coil 1 = 0)");
+        if (!debug) Serial.println("Lift PID Manual/Stop mode via Modbus (Coil 2 = 0)");
       }
     }
 

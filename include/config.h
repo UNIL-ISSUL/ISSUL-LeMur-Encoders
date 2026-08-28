@@ -77,14 +77,15 @@
 // MODBUS RTU CONFIGURATION
 // ----------------------------------------------------------------------------
 // COILS:
-//   coils[0] : Encoder Mode Selection (false: Belt, true: Steps)
-//   coils[1] : Lift PID Enable (false: Manual/Stop, true: Automatic)
+//   coils[0] : Encoder Mode Selection (false: Belt, true: Steps) [Master -> Slave]
+//   coils[1] : Encoder Feedback Active (use_feedback: true when dac_value > 0) [Slave -> Master]
+//   coils[2] : Lift PID Enable (false: Manual/Stop, true: Automatic) [Master -> Slave]
 //
 // HOLDING REGISTERS:
-//   registers[0] : Measured speed in mm/s (Read-only)
-//   registers[1] : Lift setpoint in centidegrees 0.01° (Write by Master)
-//   registers[2] : Lift measured inclination in centidegrees 0.01° (Read-only)
+//   registers[0] : Measured speed in mm/s (Read-only, encoder_feedback_speed)
+//   registers[1] : Lift setpoint in centidegrees 0.01° (Write by Master, lift_angle_SP)
+//   registers[2] : Lift measured inclination in centidegrees 0.01° (Read-only, lift_angle_current)
 // ============================================================================
 #define MODBUS_SLAVE_ADDR     3
-#define MODBUS_NUM_COILS      2
+#define MODBUS_NUM_COILS      3
 #define MODBUS_NUM_REGISTERS  3
