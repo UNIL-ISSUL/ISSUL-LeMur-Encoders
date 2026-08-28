@@ -76,6 +76,7 @@ uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer, bool mm = false) {
     return 0;
   }
   multiplexer->selectChannel(channel);
+  delayMicroseconds(50);
   if (mm) return encoders[channel].getMeterValue();
   else    return encoders[channel].getEncoderValue();
 }

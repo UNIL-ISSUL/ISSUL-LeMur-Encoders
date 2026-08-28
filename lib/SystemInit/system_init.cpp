@@ -72,7 +72,9 @@ bool system_hardware_init(
     bool connected = multiplexer.isConnected(I2C_ENC_ADDR);
     if (connected) {
       encoders[i].init(&Wire, I2C_ENC_ADDR, I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ_HZ);
-      Serial.println("      Channel " + String(i) + " (" + enc_names[i] + "): Found (0x" + String(I2C_ENC_ADDR, HEX) + ") | OK");
+      delayMicroseconds(50);
+      encoders[i].resetEncoder();
+      Serial.println("      Channel " + String(i) + " (" + enc_names[i] + "): Found (0x" + String(I2C_ENC_ADDR, HEX) + ") | Reset OK");
     } else {
       Serial.println("      ❌ Channel " + String(i) + " (" + enc_names[i] + "): NOT FOUND (0x" + String(I2C_ENC_ADDR, HEX) + ")");
       i2c_error++;
