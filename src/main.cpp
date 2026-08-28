@@ -9,12 +9,31 @@
 #include "filter.h"
 #include "teleplot.h"
 #include <DFRobot_GP8XXX.h>
+#include <QuickPID.h>
 #include "Lift.h"
+
+//lift definition & PID
+#define LIFT_UP_PIN   G22
+#define LIFT_DOWN_PIN G19
+Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN);
+
+float liftSetpoint = 0.0f, liftInput = 0.0f, liftOutput = 0.0f;
+float liftKp = 0.4f, liftKi = 0.0f, liftKd = 0.0f;
+QuickPID liftPID(&liftInput, &liftOutput, &liftSetpoint);
+
+//helper function to extract float value from serial command (e.g. "Kp=0.5")
+float getValue(const String &data, char separator = '=') {
+  int separatorIndex = data.indexOf(separator);
+  if (separatorIndex >= 0) {
+    return data.substring(separatorIndex + 1).toFloat();
+  }
+  return 0.0f;
+}
 
 //i2c wire communication
 #define I2C_FREQ 400000UL
-#define SDA 25
-#define SCL 21
+#define SDA G25
+#define SCL G21
 
 //i2c ext-encoder communication
 UNIT_EXT_ENCODER encoders[2]; //two encoders 0: belt, 1: steps
@@ -38,7 +57,6 @@ byte max_channel = 2;
 //running median filter
 RunningMedian belt_encoder_speed_median = RunningMedian(7);
 RunningMedian steps_encoder_speed_median = RunningMedian(7);
-RunningMedian inclinaison_median = RunningMedian(10);
 
 // IIR Butterworth Low-pass Filter for belt speed
 IIRFilter belt_speed_filter;
@@ -58,15 +76,33 @@ const float a_coeffs[] = {
     -0.8281462754,
 };
 
-//modbus communication
+// ============================================================================
+// MODBUS RTU SLAVE CONFIGURATION (Serial2 @ 19200 baud, 8E1, Address 3)
+// ----------------------------------------------------------------------------
+// COILS (Bit-level Read/Write):
+//   coils[0] : Encoder Mode Selection
+//              - false (0) : Tapis roulant (Belt encoder)
+//              - true  (1) : Marches d'escalier (Steps encoder)
+//   coils[1] : Lift PID Enable
+//              - false (0) : PID Désactivé / Manuel (Moteur Lift arrêté)
+//              - true  (1) : PID Activé / Automatique (Régulation de hauteur)
+//
+// HOLDING REGISTERS (16-bit Word Read/Write):
+//   registers[0] : Vitesse actuelle mesurée (mm/s) [Lecture seule par le maître]
+//                  - Vitesse du tapis ou des marches selon coils[0]
+//   registers[1] : Consigne d'inclinaison Lift (centidegrés, 0.01°) [Écriture par le maître]
+//                  - Ex: 4500 = 45.00°, 7550 = 75.50° (convertie en mm)
+//   registers[2] : Inclinaison actuelle Lift (centidegrés, 0.01°) [Lecture seule par le maître]
+//                  - Ex: 4500 = 45.00° (mesurée via ADC ADS1110 240fps)
+// ============================================================================
 unsigned long baudrate = 19200UL;
 #define RX 33
 #define TX 23
-ModbusRTUSlave slave(Serial2,3); //modbus slave on serial2, addr to be checked
+ModbusRTUSlave slave(Serial2, 3); //modbus slave on serial2, address 3
 #define NUM_COILS 2 //number of coils
-#define NUM_REGISTERS 1 //number of holding registers
-bool coils[NUM_COILS] = {false,false};  //first coil is for steps status and second if for encoder_feedback status
-uint16_t registers[NUM_REGISTERS] = {0}; //belt ot steps encoder speed in mm/s
+#define NUM_REGISTERS 3 //number of holding registers
+bool coils[NUM_COILS] = {false, false};  //coil 0: mode, coil 1: lift PID enable
+uint16_t registers[NUM_REGISTERS] = {0, 0, 0}; //0: speed (mm/s), 1: lift setpoint (0.01 deg), 2: lift position (0.01 deg)
 
 uint32_t readEncoder(uint8_t channel, TCA9548 *multiplexer,bool mm=false) {
   if (channel >= max_channel) {
@@ -120,9 +156,9 @@ void setup() {
   //initialize the modbus communication
   Serial2.begin(baudrate, SERIAL_8E1, RX, TX);
   slave.begin(baudrate);
-  //associate coils
+  //associate coils and registers
   slave.setCoils(coils, NUM_COILS);
-  slave.setHoldingRegisters(registers,1); //set holding register to store current feedback speed
+  slave.setHoldingRegisters(registers, NUM_REGISTERS); //set holding registers
   
   delay(1000); //avoid initialisation errors
 
@@ -168,6 +204,33 @@ void setup() {
       i2c_error += 1;
     }
   }
+
+  //initialize Lift & PID
+  if(lift.init() != 0){
+    Serial.println("Lift initialization failed");
+    i2c_error += 1;
+  }
+  else{
+    Serial.println("Lift initialized");
+  }
+
+  //configure lift PID
+  liftPID.SetTunings(liftKp, liftKi, liftKd);
+  liftPID.SetSampleTimeUs(UPDATE_PERIOD_US); // 5000us (200Hz)
+  liftPID.SetOutputLimits(-100, 100);        // -100% to +100%
+  liftPID.SetDerivativeMode(QuickPID::dMode::dOnMeas);
+  liftPID.SetMode(QuickPID::Control::automatic);
+
+  //warm up lift reading and init setpoint to current height
+  for(int i = 0; i < 50; i++){
+    lift.update();
+    delay(2);
+  }
+  liftSetpoint = lift.getHeight_mm();
+  liftInput = liftSetpoint;
+  uint16_t init_angle_centideg = (uint16_t)constrain(round(lift.getInclinaison_deg() * 100.0f), 0, 9000);
+  registers[1] = init_angle_centideg;
+  registers[2] = init_angle_centideg;
 
   //stop execution if there is i2c error
   if(i2c_error > 0) {
@@ -218,16 +281,20 @@ void loop() {
     last_belt_encoder_count = belt_encoder_count;
     last_steps_encoder_count = steps_encoder_count;
     last_time_us = time_us;
-    //read adc value
-    //inclinaison_median.add(readADC());
-    uint32_t inclinaison= round(inclinaison_median.getMedian()*100);  
-
     //apply geometry to compute speed in mm/s
     belt_encoder_speed = belt_encoder_speed*perimeter[0]/pulse[0]; //mm/s
     steps_encoder_speed = steps_encoder_speed*perimeter[1]/pulse[1]; //mm/s
     //filter speeds
     float filtered_belt_speed = belt_speed_filter.filter(belt_encoder_speed);
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
+    //update Lift & compute PID @ 200Hz
+    lift.update();
+    liftInput = lift.getHeight_mm();
+    if(liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic){
+      liftPID.Compute();
+      lift.move(liftOutput);
+    }
+
     //update DAC output
     uint16_t dac_value;
     //if coil 0 is set to 1, the steps are used else this the belt
@@ -235,7 +302,7 @@ void loop() {
     if(!coils[0]) dac_value = (int16_t)round(belt_encoder_speed);  
     else dac_value = (int16_t)round(steps_encoder_speed);
     //write DAC output
-    // calculate current for speed DAC
+    // calculate current for speed DAC (Channel 2)
     float speed_mA;
     const uint16_t max_belt_speed_mm_s = 12000; // 40km/h
     const uint16_t max_steps_speed_mm_s = 3000; // 1m/s
@@ -245,24 +312,21 @@ void loop() {
     if (speed_mA > 20.0) speed_mA = 20.0;
     if (speed_mA < 4.0) speed_mA = 4.0;
 
-    // calculate current for inclinaison DAC
-    float incl_deg = (float)inclinaison * 90 / 1000000.0;
+    // calculate current for inclinaison DAC (Channel 3) from Lift measurement
+    float incl_deg = lift.getInclinaison_deg();
     float incl_mA = 4.0 + (incl_deg * 16.0 / 90.0);
     if (incl_mA > 20.0) incl_mA = 20.0;
     if (incl_mA < 4.0) incl_mA = 4.0;
 
-    //speed_mA = 20;
-    //incl_mA = 12;
+    //send to DACs on I2C multiplexer channels 2 and 3
     set_DFR0972_mA(2, speed_mA, 654, 3279);
     set_DFR0972_mA(3, incl_mA, 654, 3279);
     //print mA sent value
     //Serial.println("Speed mA: " + String(speed_mA) + " Inclinaison mA: " + String(incl_mA));
 
-    //Check if dac_value is not null to enable encoder feedback
-    if(dac_value > 0) coils[1] = true; //set encoder feedback coil to true
-    else              coils[1] = false; //set encoder feedback coil to false
-    //update modbus holding register with current feedback speed
-    registers[0] = dac_value; //update holding register with current feedback speed
+    //update modbus holding registers
+    registers[0] = dac_value; //update holding register with current feedback speed (mm/s)
+    registers[2] = (uint16_t)constrain(round(incl_deg * 100.0f), 0, 9000); //current inclination (0.01 deg)
 
     //reset flag
     flag_read_encoder = false;
@@ -277,32 +341,48 @@ void loop() {
       teleplot_print("inclinaison", incl_deg, now);
       teleplot_print("inclinaison_mA", incl_mA, now);
       teleplot_print("speed_mA", speed_mA, now);
+      teleplot_print("lift_height", liftInput, now);
+      teleplot_print("lift_setpoint", liftSetpoint, now);
+      teleplot_print("lift_output", liftOutput, now);
+      teleplot_print("lift_inclinaison", lift.getInclinaison_deg(), now);
     }
   }
-  //if encoder are not updated read modbus coils
+  //if encoder are not updated read modbus coils & registers
   else {
     //update modbus slave
     slave.update();
-    //Serial.println("Coil 0: " + String(coils[0]));
     //check for exception on slave modbus
     if (slave.hasException()) {
       if (!debug) Serial.println("MODBUS exception: " + String(slave.getExceptionMessage()));
       slave.clearException();
     }
-    //read coils
-    static bool last_coil = false;
-    if(coils[0] != last_coil){
-      last_coil = coils[0];
-      if (!debug) Serial.println("Coil 0 changed to " + String(coils[0]));
+    //read coil 0: Encoder Mode (Belt vs Steps)
+    static bool last_coil0 = false;
+    if(coils[0] != last_coil0){
+      last_coil0 = coils[0];
+      if (!debug) Serial.println("Modbus Encoder Mode: " + String(coils[0] ? "Steps" : "Belt"));
     }
-    //show change of encoder feedback state
+    //read coil 1: Lift PID Enable (Automatic vs Manual)
     static bool last_coil1 = false;
     if(coils[1] != last_coil1){
       last_coil1 = coils[1];
-      if (!debug) {
-        if(coils[1]) Serial.println("Encoder feedback enabled");
-        else         Serial.println("Encoder feedback disabled");
+      if (coils[1]) {
+        liftPID.Reset();
+        liftPID.SetMode(QuickPID::Control::automatic);
+        if (!debug) Serial.println("Lift PID Auto mode enabled via Modbus (Coil 1 = 1)");
+      } else {
+        liftPID.SetMode(QuickPID::Control::manual);
+        lift.stop();
+        if (!debug) Serial.println("Lift PID Manual/Stop mode via Modbus (Coil 1 = 0)");
       }
+    }
+    //read register 1: Lift Setpoint Angle (0.01 deg)
+    static uint16_t last_reg_setpoint = 0;
+    if(registers[1] != last_reg_setpoint){
+      last_reg_setpoint = registers[1];
+      float setpoint_deg = (float)registers[1] / 100.0f;
+      liftSetpoint = lift.computeHeight(setpoint_deg);
+      if (!debug) Serial.println("Lift Setpoint updated via Modbus: " + String(setpoint_deg) + " deg (" + String(liftSetpoint) + " mm)");
     }
   }
  
@@ -319,6 +399,79 @@ void loop() {
     }
     else{
         M5.dis.drawpix(0, CRGB::Green);
+    }
+  }
+
+  //read command on serial port to control lift: up, down, stop, auto, manual, reset, set speed, setpoint, Kp, Ki, Kd
+  if (Serial.available() > 0) {
+    String command = Serial.readStringUntil('\n');
+    command.trim();
+    Serial.println("command:" + command);
+    if (command == "up") {
+      liftPID.SetMode(QuickPID::Control::manual);
+      lift.moveUp();
+    } 
+    else if (command == "down") {
+      liftPID.SetMode(QuickPID::Control::manual);
+      lift.moveDown();
+    } 
+    else if (command == "stop") {
+      liftPID.SetMode(QuickPID::Control::manual);
+      lift.stop();
+    } 
+    else if (command == "auto") {
+      liftPID.Reset();
+      liftPID.SetMode(QuickPID::Control::automatic);
+      Serial.println("PID Auto mode enabled");
+    } 
+    else if (command == "manual") {
+      liftPID.SetMode(QuickPID::Control::manual);
+      lift.stop();
+      Serial.println("PID Manual mode enabled");
+    } 
+    else if (command == "reset") {
+      liftPID.Reset();
+    } 
+    else if (command.startsWith("speed")) {
+      float spd = getValue(command);
+      liftPID.SetMode(QuickPID::Control::manual);
+      Serial.println("speed:" + String(spd));
+      lift.setSpeed(spd);
+    } 
+    else if (command.startsWith("liftSP")) {
+      liftSetpoint = getValue(command);
+      Serial.println("liftSetPoint:" + String(liftSetpoint));
+    } 
+    else if (command.startsWith("step")) {
+      float stepVal = getValue(command);
+      liftSetpoint += stepVal;
+      Serial.println("liftSetPoint:" + String(liftSetpoint));
+    } 
+    else if (command.startsWith("Kp")) {
+      liftKp = getValue(command);
+      liftPID.SetTunings(liftKp, liftKi, liftKd);
+      Serial.println("Kp:" + String(liftKp));
+    } 
+    else if (command.startsWith("Ki")) {
+      liftKi = getValue(command);
+      liftPID.SetTunings(liftKp, liftKi, liftKd);
+      Serial.println("Ki:" + String(liftKi));
+    } 
+    else if (command.startsWith("Kd")) {
+      liftKd = getValue(command);
+      liftPID.SetTunings(liftKp, liftKi, liftKd);
+      Serial.println("Kd:" + String(liftKd));
+    } 
+    else if (command.startsWith("getK")) {
+      Serial.println("Kp:" + String(liftPID.GetKp()));
+      Serial.println("Ki:" + String(liftPID.GetKi()));
+      Serial.println("Kd:" + String(liftPID.GetKd()));
+    } 
+    else if (command.startsWith("setAngle")) {
+      float angle = getValue(command);
+      liftSetpoint = lift.computeHeight(angle);
+      Serial.println("setAngle:" + String(angle));
+      Serial.println("liftSetPoint:" + String(liftSetpoint));
     }
   }
 }
