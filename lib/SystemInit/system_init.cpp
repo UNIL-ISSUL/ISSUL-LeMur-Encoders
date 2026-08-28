@@ -92,21 +92,22 @@ bool system_hardware_init(
     }
   }
 
-  // 5. Initialize Lift Hardware
+  // 5. Initialize Lift Hardware (Channels 4 & 5)
   Serial.println("[5/6] Initializing Lift Hardware...");
+  lift.setMultiplexer(&multiplexer, MUX_CH_LIFT_DAC, MUX_CH_LIFT_ADC);
   bool dac_ok = false, adc_ok = false;
   lift.checkHardware(dac_ok, adc_ok);
   if (dac_ok) {
-    Serial.println("      GP8413 0-10V DAC found (0x" + String(I2C_DAC_ADDR, HEX) + ")");
+    Serial.println("      Channel " + String(MUX_CH_LIFT_DAC) + " (Lift 0-10V DAC): Found (0x" + String(I2C_DAC_ADDR, HEX) + ")");
   } else {
-    Serial.println("      ❌ GP8413 0-10V DAC NOT FOUND (0x" + String(I2C_DAC_ADDR, HEX) + ")");
+    Serial.println("      ❌ Channel " + String(MUX_CH_LIFT_DAC) + " (Lift 0-10V DAC): NOT FOUND (0x" + String(I2C_DAC_ADDR, HEX) + ")");
     i2c_error++;
   }
 
   if (adc_ok) {
-    Serial.println("      ADS1110 ADC found (0x" + String(I2C_ADC_ADDR, HEX) + ")");
+    Serial.println("      Channel " + String(MUX_CH_LIFT_ADC) + " (Lift Inclinometer): Found (0x" + String(I2C_ADC_ADDR, HEX) + ")");
   } else {
-    Serial.println("      ❌ ADS1110 ADC NOT FOUND (0x" + String(I2C_ADC_ADDR, HEX) + ")");
+    Serial.println("      ❌ Channel " + String(MUX_CH_LIFT_ADC) + " (Lift Inclinometer): NOT FOUND (0x" + String(I2C_ADC_ADDR, HEX) + ")");
     i2c_error++;
   }
 

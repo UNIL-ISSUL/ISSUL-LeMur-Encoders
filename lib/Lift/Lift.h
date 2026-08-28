@@ -36,12 +36,15 @@ enum LiftStatus {
     LIFT_ERR_ADC_READ_FAIL = 4        // ADS1110 reading returned invalid data
 };
 
+class TCA9548;
+
 class Lift {
     float inclinaison_deg;
     float height_mm;
 public:
     Lift(char upPin, char downPin, uint8_t dacAddr = DAC_ADDR);
     ~Lift();
+    void setMultiplexer(TCA9548 *mux, uint8_t dacChannel = 4, uint8_t adcChannel = 5);
     int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange10V);
     int checkHardware(bool &dac_ok, bool &adc_ok);
     static const char* getStatusMessage(int code);
@@ -64,5 +67,8 @@ private:
     char downPin;
     uint8_t dacAddress;
     DFRobot_GP8413 GP8413;
+    TCA9548 *_mux;
+    uint8_t _dacChannel;
+    uint8_t _adcChannel;
     float horizontalPosition(float angle_deg);
 };
