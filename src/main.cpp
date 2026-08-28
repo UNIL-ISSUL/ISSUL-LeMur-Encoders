@@ -211,20 +211,20 @@ void loop() {
 
       if (batch_count >= TELEPLOT_BATCH_SIZE) {
         // High-speed 200 Hz encoder batches (10 points every 50ms - 100% glitch resolution)
-        teleplot_print_batch("Speed/Belt_Raw", batch_belt_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
-        teleplot_print_batch("Speed/Belt_Filt", batch_belt_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
-        teleplot_print_batch("Speed/Steps_Raw", batch_steps_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
-        teleplot_print_batch("Speed/Steps_Filt", batch_steps_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Belt_Speed_Raw", batch_belt_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Belt_Speed_Filt", batch_belt_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Steps_Speed_Raw", batch_steps_raw, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
+        teleplot_print_batch("Steps_Speed_Filt", batch_steps_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
 
         // 20 Hz low-frequency curves (Lift, DACs, and Status)
-        teleplot_print_group("Lift_Height", "Measured", liftInput, now, "mm");
-        teleplot_print_group("Lift_Height", "Setpoint", liftSetpoint, now, "mm");
-        teleplot_print_group("Lift_Angle", "Inclinaison", incl_deg, now, "deg");
-        teleplot_print_group("Lift_Motor", "Output", liftOutput, now, "%");
-        teleplot_print_group("DAC_4_20mA", "Speed_mA", speed_mA, now, "mA");
-        teleplot_print_group("DAC_4_20mA", "Incl_mA", incl_mA, now, "mA");
-        teleplot_print_text("Encoder_Mode", coils[0] ? "STEPS" : "BELT", now, "Status");
-        teleplot_print_text("Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now, "Status");
+        teleplot_print("Lift_Height", liftInput, now, "mm");
+        teleplot_print("Lift_Setpoint", liftSetpoint, now, "mm");
+        teleplot_print("Lift_Angle", incl_deg, now, "deg");
+        teleplot_print("Lift_Motor", liftOutput, now, "%");
+        teleplot_print("DAC_Speed_mA", speed_mA, now, "mA");
+        teleplot_print("DAC_Incl_mA", incl_mA, now, "mA");
+        teleplot_print_text("Status_Encoder", coils[0] ? "STEPS" : "BELT", now);
+        teleplot_print_text("Status_Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now);
 
         batch_count = 0;
       }
