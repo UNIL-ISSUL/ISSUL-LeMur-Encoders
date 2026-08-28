@@ -20,7 +20,7 @@ void UNIT_EXT_ENCODER::writeBytes(uint8_t addr, uint8_t reg, const uint8_t *buff
 void UNIT_EXT_ENCODER::readBytes(uint8_t addr, uint8_t reg, uint8_t *buffer, uint8_t length) {
     _wire->beginTransmission(addr);
     _wire->write(reg);
-    _wire->endTransmission(false);
+    _wire->endTransmission(true);
     uint8_t read_bytes = _wire->requestFrom((int)addr, (int)length);
     for (uint8_t i = 0; i < read_bytes && i < length; i++) {
         buffer[i] = _wire->read();

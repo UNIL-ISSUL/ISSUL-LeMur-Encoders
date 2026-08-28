@@ -228,6 +228,8 @@ void loop() {
         teleplot_print("DAC_Speed_mA", speed_mA, now, "mA");
         teleplot_print("DAC_Incl_mA", incl_mA, now, "mA");
         teleplot_print("Belt_Moving", belt_moving ? 1.0f : 0.0f, now, "state");
+        teleplot_print("Belt_Encoder_Count", (float)belt_encoder_count, now, "pulses");
+        teleplot_print("Steps_Encoder_Count", (float)steps_encoder_count, now, "pulses");
         teleplot_print_text("Status_Encoder", coils[0] ? "STEPS" : "BELT", now);
         teleplot_print_text("Status_Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now);
 
