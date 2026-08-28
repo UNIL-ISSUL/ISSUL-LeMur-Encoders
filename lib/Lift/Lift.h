@@ -27,13 +27,13 @@
 #define ADC_CONFIG_240FPS_PGA1 0x80 // 0b10000000 : 240 SPS continuous mode, PGA = 1
 
 #ifndef DAC_ADDR
-#define DAC_ADDR 0x59 // GP8413 0-10V DAC address (default: 0x59)
+#define DAC_ADDR 0x5A // GP8413 0-5V DAC address (configured with A0A1A2=010 -> 0x5A)
 #endif
 
 // Detailed diagnostic status codes
 enum LiftStatus {
     LIFT_OK = 0,
-    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-5V DAC (0x59) not responding
+    LIFT_ERR_DAC_NOT_FOUND = 1,       // GP8413 0-5V DAC (0x5A) not responding
     LIFT_ERR_ADC_NOT_FOUND = 2,       // ADS1110 ADC (0x48) not responding
     LIFT_ERR_ADC_CONFIG_FAIL = 3,     // ADS1110 config write failed
     LIFT_ERR_ADC_READ_FAIL = 4        // ADS1110 reading returned invalid data
