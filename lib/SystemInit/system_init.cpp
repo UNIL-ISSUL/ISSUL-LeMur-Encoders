@@ -48,11 +48,13 @@ bool system_hardware_init(
   slave.setCoils(coils, MODBUS_NUM_COILS);
   slave.setHoldingRegisters(registers, MODBUS_NUM_REGISTERS);
   Serial.println("      Modbus Slave (Addr " + String(MODBUS_SLAVE_ADDR) + " @ " + String(MODBUS_BAUDRATE) + " baud) OK");
+  
+  // Safe initialization delay (from commit 931106c) to let hardware and bus stabilize
+  delay(1000);
 
   // 3. Initialize I2C bus & Multiplexer
   Serial.println("[3/6] Initializing I2C bus & Multiplexer...");
   Wire.setClock(I2C_FREQ_HZ);
-  Wire.setTimeOut(20); // 20ms timeout per I2C transaction
   uint8_t i2c_error = 0;
 
   if (multiplexer.begin()) {
@@ -70,9 +72,7 @@ bool system_hardware_init(
     bool connected = multiplexer.isConnected(I2C_ENC_ADDR);
     if (connected) {
       encoders[i].init(&Wire, I2C_ENC_ADDR, I2C_SDA_PIN, I2C_SCL_PIN, I2C_FREQ_HZ);
-      uint8_t fw_ver = encoders[i].getFirmwareVersion();
-      encoders[i].resetEncoder();
-      Serial.println("      Channel " + String(i) + " (" + enc_names[i] + "): Found (0x" + String(I2C_ENC_ADDR, HEX) + ") | FW v" + String(fw_ver) + " | Reset OK");
+      Serial.println("      Channel " + String(i) + " (" + enc_names[i] + "): Found (0x" + String(I2C_ENC_ADDR, HEX) + ") | OK");
     } else {
       Serial.println("      ❌ Channel " + String(i) + " (" + enc_names[i] + "): NOT FOUND (0x" + String(I2C_ENC_ADDR, HEX) + ")");
       i2c_error++;
