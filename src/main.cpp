@@ -219,6 +219,7 @@ void loop() {
         // 20 Hz low-frequency curves (Lift, DACs, and Status)
         teleplot_print("Lift_Height", liftInput, now, "mm");
         teleplot_print("Lift_Setpoint", liftSetpoint, now, "mm");
+        teleplot_print("Lift_Voltage", lift.getVoltage(), now, "V");
         teleplot_print("Lift_Angle", incl_deg, now, "deg");
         teleplot_print("Lift_Motor", liftOutput, now, "%");
         teleplot_print("DAC_Speed_mA", speed_mA, now, "mA");

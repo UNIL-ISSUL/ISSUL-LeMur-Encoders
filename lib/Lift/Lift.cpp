@@ -106,12 +106,12 @@ float Lift::getHeight_mm() {
     return height_mm;
 }
 
+float Lift::getVoltage(bool raw) {
+    return raw ? sensorValueRaw : sensorValue;
+}
+
 float Lift::getSensorValue(bool raw) {
-    if (raw) {
-        return sensorValueRaw;
-    } else {
-        return sensorValue;
-    }
+    return raw ? sensorValueRaw : sensorValue;
 }
 
 float Lift::computeHeight(float angle_deg) {

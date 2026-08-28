@@ -3,19 +3,21 @@
 #include <Arduino.h>
 #include <DFRobot_GP8XXX.h>
 
-// Constant physical and electrical parameters
-#define ANALOG_TO_ANGLE_GAIN 1.071819024f
-#define ANALOG_TO_ANGLE_OFFSET -2.772616596f
+// Constant physical and electrical parameters (Baumer GIM500R: 0-10V -> 0-180 deg)
+#define GIM500R_MAX_VOLTAGE_V    10.0f
+#define GIM500R_MAX_ANGLE_DEG    180.0f
+#define ANALOG_TO_ANGLE_GAIN     (GIM500R_MAX_ANGLE_DEG / GIM500R_MAX_VOLTAGE_V) // 18.0f deg/V
+#define ANALOG_TO_ANGLE_OFFSET   0.0f                                            // 0.0 deg
 #define ANALOG_TO_ANGLE_GAIN_I2C 1.0f
 #define ANALOG_TO_ANGLE_OFFSET_I2C 0.0f
-#define BELT_LENGTH_MM 2630.0f
-#define BELT_HEIGHT_MM 185.0f
-#define SPEED_TO_ANALOG_GAIN 1.03f
-#define SPEED_TO_ANALOG_OFFSET 0.0f
-#define PCT_TRESHOLD 12.0f
-#define ADC_I2C_ADDRESS 0x48
-#define THRESHOLD_ANGLE_DEG 78.0f
-#define SLOPE_MM_PER_DEG 6.3853f
+#define BELT_LENGTH_MM           2630.0f
+#define BELT_HEIGHT_MM           185.0f
+#define SPEED_TO_ANALOG_GAIN     1.03f
+#define SPEED_TO_ANALOG_OFFSET   0.0f
+#define PCT_TRESHOLD             12.0f
+#define ADC_I2C_ADDRESS          0x48
+#define THRESHOLD_ANGLE_DEG      78.0f
+#define SLOPE_MM_PER_DEG         6.3853f
 
 #ifndef ADC_ADDR
 #define ADC_ADDR 0x48
@@ -47,7 +49,8 @@ public:
     static const char* getStatusMessage(int code);
     void update();
     float getInclinaison_deg();
-    float getSensorValue(bool raw = true);
+    float getVoltage(bool raw = false);
+    float getSensorValue(bool raw = false);
     float getHeight_mm();
     void setSpeed(float speed_pct);
     void moveUp();

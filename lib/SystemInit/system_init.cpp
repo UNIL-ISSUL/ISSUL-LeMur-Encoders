@@ -120,11 +120,12 @@ bool system_hardware_init(
       Serial.println("      ❌ Lift config failed: " + String(Lift::getStatusMessage(lift_status)));
       i2c_error++;
     } else {
+      float init_volt = lift.getVoltage();
       float init_angle = lift.getInclinaison_deg();
       if (init_angle < LIFT_ANGLE_MIN_DEG || init_angle > LIFT_ANGLE_MAX_DEG) {
-        Serial.println("      ⚠️ Warning: Initial angle (" + String(init_angle, 2) + " deg) outside range [0-90 deg]");
+        Serial.println("      ⚠️ Warning: Initial: " + String(init_volt, 3) + " V -> " + String(init_angle, 2) + " deg (outside range [0-90 deg])");
       } else {
-        Serial.println("      Initial angle: " + String(init_angle, 2) + " deg (Valid [0-90 deg]) | Height: " + String(lift.getHeight_mm(), 1) + " mm");
+        Serial.println("      Initial: " + String(init_volt, 3) + " V -> " + String(init_angle, 2) + " deg (Valid [0-90 deg]) | Height: " + String(lift.getHeight_mm(), 1) + " mm");
       }
       Serial.println("      Motor Direction Relay Pins (UP: G22, DOWN: G19) OK");
       Serial.println("      Lift Hardware initialized successfully");
