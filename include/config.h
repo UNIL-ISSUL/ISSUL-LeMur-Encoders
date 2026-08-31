@@ -63,16 +63,12 @@
 #define DFR0972_DAC_20MA_RAW  3279
 
 // ============================================================================
-// LIFT PID REGULATION PARAMETERS
+// LIFT NON-LINEAR SQUARE-ROOT CONTROLLER PARAMETERS
 // ============================================================================
-#define LIFT_PID_KP_DEFAULT       0.8f       // Proportional gain (% / mm)
-#define LIFT_PID_KI_DEFAULT       0.0f       // Integral gain (0 = no integrator windup)
-#define LIFT_PID_KD_DEFAULT       0.10f      // Derivative damping gain (seconds)
-#define LIFT_PID_OUT_MIN          -100.0f    // -100% to +100%
-#define LIFT_PID_OUT_MAX          100.0f
-#define LIFT_POS_TOLERANCE_MM     4.0f       // Position tolerance window (± 1 mm)
-#define LIFT_POS_HYSTERESIS_MM    2.0f       // Wakeup threshold from hold (1.5 mm)
-#define LIFT_MIN_DRIVE_PCT        5.0f      // Minimum moving speed floor for brake release (> Pr.152)
+#define LIFT_SQRT_GAIN_DEFAULT    8.0f       // Square-root gain (% / sqrt(mm))
+#define LIFT_DEADBAND_DEG_DEFAULT 0.30f      // Deadband angle threshold (± 0.30 deg)
+#define LIFT_MIN_DRIVE_PCT        12.0f      // Minimum moving speed floor for brake release (> Pr.152)
+#define LIFT_MAX_DRIVE_PCT        100.0f     // Maximum speed percentage (100% = 5V DAC)
 #define LIFT_ANGLE_MIN_DEG        0.0f
 #define LIFT_ANGLE_MAX_DEG        90.0f
 

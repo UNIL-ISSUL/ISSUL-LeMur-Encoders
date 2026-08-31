@@ -10,15 +10,15 @@
 #include "filter.h"
 #include "teleplot.h"
 #include <DFRobot_GP8XXX.h>
-#include <QuickPID.h>
 #include "Lift.h"
 #include "system_init.h"
 
-// Lift instance & PID
+// Lift instance & Square-Root Non-Linear Controller
 Lift lift(LIFT_UP_PIN, LIFT_DOWN_PIN);
-float liftSetpoint = 0.0f, liftInput = 0.0f, liftOutput = 0.0f;
-float liftKp = LIFT_PID_KP_DEFAULT, liftKi = LIFT_PID_KI_DEFAULT, liftKd = LIFT_PID_KD_DEFAULT;
-QuickPID liftPID(&liftInput, &liftOutput, &liftSetpoint);
+float liftSetpointAngle = 0.0f;
+float liftSqrtGain = LIFT_SQRT_GAIN_DEFAULT;
+float liftDeadbandDeg = LIFT_DEADBAND_DEG_DEFAULT;
+float liftOutput = 0.0f;
 
 // Encoders & I2C Multiplexer
 UNIT_EXT_ENCODER encoders[MUX_MAX_ENC_CHANNELS];
@@ -104,16 +104,11 @@ void setup() {
     }
   }
 
-  // 3. Configure Lift PID
+  // 3. Configure Lift
   lift.setMinOutputPct(LIFT_MIN_DRIVE_PCT);
-  liftPID.SetTunings(liftKp, liftKi, liftKd);
-  liftPID.SetSampleTimeUs(UPDATE_PERIOD_US);
-  liftPID.SetOutputLimits(LIFT_PID_OUT_MIN, LIFT_PID_OUT_MAX);
-  liftPID.SetDerivativeMode(QuickPID::dMode::dOnMeas);
-  liftPID.SetMode(QuickPID::Control::manual);
   lift.stop();
-  liftSetpoint = lift.getHeight_mm();
-  liftInput = liftSetpoint;
+  liftSetpointAngle = lift.getInclinaison_deg();
+  registers[1] = (uint16_t)round(liftSetpointAngle * 100.0f);
 
   // 4. Initialize digital speed filters
   belt_speed_filter.init(filter_order, b_coeffs, a_coeffs);
@@ -156,45 +151,41 @@ void loop() {
     float filtered_belt_speed = belt_speed_filter.filter(belt_encoder_speed);
     float filtered_steps_speed = encoder_speed_filter.filter(steps_encoder_speed);
 
-    // 4. Update Lift sensor & compute PID (Main I2C bus via 3-way Hub)
+    // 4. Update Lift sensor & compute Square-Root Controller (Main I2C bus via 3-way Hub)
     i2cMultiplexer.disableAllChannels();
     delayMicroseconds(10);
     lift.update();
-    liftInput = lift.getHeight_mm();
 
-    if (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) {
-      static bool is_holding = false;
-      float error = liftSetpoint - liftInput;
+    float current_angle = lift.getInclinaison_deg();
+    float current_height = lift.computeHeight(current_angle);
+    float target_angle = constrain(liftSetpointAngle, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
+    float target_height = lift.computeHeight(target_angle);
+    float error_height = target_height - current_height;
 
-      if (is_holding) {
-        if (fabs(error) > LIFT_POS_HYSTERESIS_MM) {
-          is_holding = false;
-          liftPID.Reset();
+    // Calculate dynamic deadband height in mm for +/- liftDeadbandDeg around target_angle
+    float deadband_height_mm = fabs(lift.computeHeight(target_angle + liftDeadbandDeg) - target_height);
+
+    if (coils[2]) { // Automatic Lift control enabled via Modbus Coil 2
+      if (fabs(error_height) <= deadband_height_mm) {
+        // Inside deadband: stop drive and engage mechanical brake immediately
+        lift.stop(); // FORWARD_PIN = LOW, BACKWARD_PIN = LOW, DAC = 0
+        liftOutput = 0.0f;
+      } else {
+        // Outside deadband: Square-Root P-Controller for constant deceleration
+        float speed_pct = liftSqrtGain * sqrt(fabs(error_height));
+        speed_pct = constrain(speed_pct, LIFT_MIN_DRIVE_PCT, LIFT_MAX_DRIVE_PCT);
+        lift.setSpeed(speed_pct);
+        if (error_height > 0.0f) {
+          lift.moveUp(); // FORWARD_PIN = HIGH, BACKWARD_PIN = LOW
+          liftOutput = speed_pct;
         } else {
-          lift.stop();
-          liftOutput = 0.0f;
+          lift.moveDown(); // FORWARD_PIN = LOW, BACKWARD_PIN = HIGH
+          liftOutput = -speed_pct;
         }
       }
-
-      if (!is_holding) {
-        if (fabs(error) <= LIFT_POS_TOLERANCE_MM) {
-          is_holding = true;
-          lift.stop();
-          liftOutput = 0.0f;
-        } else {
-          liftPID.Compute();
-          float speed = fabs(liftOutput);
-          if (speed < LIFT_MIN_DRIVE_PCT) speed = LIFT_MIN_DRIVE_PCT;
-          lift.setSpeed(speed);
-          if (liftOutput > 0.0f) {
-            lift.moveUp();
-          } else if (liftOutput < 0.0f) {
-            lift.moveDown();
-          } else {
-            lift.stop();
-          }
-        }
-      }
+    } else {
+      lift.stop();
+      liftOutput = 0.0f;
     }
 
     // 5. Select active speed feedback
@@ -252,10 +243,12 @@ void loop() {
         teleplot_print_batch("Steps_Speed_Filt", batch_steps_filt, batch_timestamps, TELEPLOT_BATCH_SIZE, "mm/s");
 
         // 20 Hz low-frequency curves (Lift, DACs, and Status)
-        teleplot_print("Lift_Height", liftInput, now, "mm");
-        teleplot_print("Lift_Setpoint", liftSetpoint, now, "mm");
+        teleplot_print("Lift_Angle", current_angle, now, "deg");
+        teleplot_print("Lift_Setpoint_Angle", target_angle, now, "deg");
+        teleplot_print("Lift_Height", current_height, now, "mm");
+        teleplot_print("Lift_Setpoint_Height", target_height, now, "mm");
+        teleplot_print("Lift_Error_mm", error_height, now, "mm");
         teleplot_print("Lift_Voltage", lift.getVoltage(), now, "V");
-        teleplot_print("Lift_Angle", incl_deg, now, "deg");
         teleplot_print("Lift_Motor", liftOutput, now, "%");
         teleplot_print("DAC_Speed_mA", speed_mA, now, "mA");
         teleplot_print("DAC_Incl_mA", incl_mA, now, "mA");
@@ -264,7 +257,7 @@ void loop() {
         teleplot_print("Belt_Encoder_Count", (float)belt_encoder_count, now, "pulses");
         teleplot_print("Steps_Encoder_Count", (float)steps_encoder_count, now, "pulses");
         teleplot_print_text("Status_Encoder", coils[0] ? "STEPS" : "BELT", now);
-        teleplot_print_text("Status_Lift_PID", (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) ? "AUTO" : "MANUAL", now);
+        teleplot_print_text("Status_Lift_Control", coils[2] ? "AUTO" : "MANUAL", now);
 
         batch_count = 0;
       }
@@ -288,18 +281,15 @@ void loop() {
       if (!debug) Serial.println("Modbus Encoder Mode: " + String(coils[0] ? "Steps" : "Belt"));
     }
 
-    // Coil 2: Lift PID Enable (Automatic vs Manual)
+    // Coil 2: Lift Auto Mode Enable (Automatic vs Manual)
     static bool last_coil2 = false;
     if (coils[2] != last_coil2) {
       last_coil2 = coils[2];
       if (coils[2]) {
-        liftPID.Reset();
-        liftPID.SetMode(QuickPID::Control::automatic);
-        if (!debug) Serial.println("Lift PID Auto mode enabled via Modbus (Coil 2 = 1)");
+        if (!debug) Serial.println("Lift Auto mode enabled via Modbus (Coil 2 = 1)");
       } else {
-        liftPID.SetMode(QuickPID::Control::manual);
         lift.stop();
-        if (!debug) Serial.println("Lift PID Manual/Stop mode via Modbus (Coil 2 = 0)");
+        if (!debug) Serial.println("Lift Manual/Stop mode via Modbus (Coil 2 = 0)");
       }
     }
 
@@ -308,9 +298,8 @@ void loop() {
     if (registers[1] != last_reg_setpoint) {
       last_reg_setpoint = registers[1];
       float setpoint_deg = (float)registers[1] / 100.0f;
-      setpoint_deg = constrain(setpoint_deg, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
-      liftSetpoint = lift.computeHeight(setpoint_deg);
-      if (!debug) Serial.println("Lift Setpoint updated via Modbus: " + String(setpoint_deg) + " deg (" + String(liftSetpoint) + " mm)");
+      liftSetpointAngle = constrain(setpoint_deg, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
+      if (!debug) Serial.println("Lift Setpoint Angle updated via Modbus: " + String(liftSetpointAngle) + " deg");
     }
   }
 
@@ -336,61 +325,37 @@ void loop() {
     command.trim();
     Serial.println("command:" + command);
     if (command == "up") {
-      liftPID.SetMode(QuickPID::Control::manual);
+      coils[2] = false;
       lift.moveUp();
     } else if (command == "down") {
-      liftPID.SetMode(QuickPID::Control::manual);
+      coils[2] = false;
       lift.moveDown();
     } else if (command == "stop") {
-      liftPID.SetMode(QuickPID::Control::manual);
+      coils[2] = false;
       lift.stop();
     } else if (command == "auto") {
-      coils[1] = true;
-      liftPID.Reset();
-      liftPID.SetMode(QuickPID::Control::automatic);
-      Serial.println("PID Auto mode enabled");
+      coils[2] = true;
+      Serial.println("Lift Auto mode enabled");
     } else if (command == "manual") {
-      coils[1] = false;
-      liftPID.SetMode(QuickPID::Control::manual);
+      coils[2] = false;
       lift.stop();
-      Serial.println("PID Manual mode enabled");
-    } else if (command == "reset") {
-      liftPID.Reset();
+      Serial.println("Lift Manual mode enabled");
     } else if (command.startsWith("speed")) {
       float spd = getValue(command);
-      liftPID.SetMode(QuickPID::Control::manual);
+      coils[2] = false;
       Serial.println("speed:" + String(spd));
       lift.setSpeed(spd);
-    } else if (command.startsWith("liftSP")) {
-      liftSetpoint = getValue(command);
-      Serial.println("liftSetPoint:" + String(liftSetpoint));
-    } else if (command.startsWith("step")) {
-      float stepVal = getValue(command);
-      liftSetpoint += stepVal;
-      Serial.println("liftSetPoint:" + String(liftSetpoint));
-    } else if (command.startsWith("Kp")) {
-      liftKp = getValue(command);
-      liftPID.SetTunings(liftKp, liftKi, liftKd);
-      Serial.println("Kp:" + String(liftKp));
-    } else if (command.startsWith("Ki")) {
-      liftKi = getValue(command);
-      liftPID.SetTunings(liftKp, liftKi, liftKd);
-      Serial.println("Ki:" + String(liftKi));
-    } else if (command.startsWith("Kd")) {
-      liftKd = getValue(command);
-      liftPID.SetTunings(liftKp, liftKi, liftKd);
-      Serial.println("Kd:" + String(liftKd));
-    } else if (command.startsWith("getK")) {
-      Serial.println("Kp:" + String(liftPID.GetKp()));
-      Serial.println("Ki:" + String(liftPID.GetKi()));
-      Serial.println("Kd:" + String(liftPID.GetKd()));
-    } else if (command.startsWith("setAngle")) {
+    } else if (command.startsWith("K") || command.startsWith("gain")) {
+      liftSqrtGain = getValue(command);
+      Serial.println("liftSqrtGain:" + String(liftSqrtGain));
+    } else if (command.startsWith("db") || command.startsWith("deadband")) {
+      liftDeadbandDeg = getValue(command);
+      Serial.println("liftDeadbandDeg:" + String(liftDeadbandDeg));
+    } else if (command.startsWith("setAngle") || command.startsWith("sp") || command.startsWith("angle")) {
       float angle = getValue(command);
-      angle = constrain(angle, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
-      liftSetpoint = lift.computeHeight(angle);
-      registers[1] = (uint16_t)round(angle * 100.0f);
-      Serial.println("setAngle:" + String(angle));
-      Serial.println("liftSetPoint:" + String(liftSetpoint));
+      liftSetpointAngle = constrain(angle, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
+      registers[1] = (uint16_t)round(liftSetpointAngle * 100.0f);
+      Serial.println("liftSetpointAngle:" + String(liftSetpointAngle) + " deg");
     }
   }
 }
