@@ -1,7 +1,7 @@
 #include "teleplot.h"
 
 // Format: >name:timestamp:value§unit|flags
-void teleplot_print(const String &name, float value, uint32_t timestamp, const String &unit, const String &flags) {
+void teleplot_print(const String &name, float value, uint32_t timestamp, const String &unit, const String &flags, int digits) {
   Serial.print(">");
   Serial.print(name);
   Serial.print(":");
@@ -9,7 +9,7 @@ void teleplot_print(const String &name, float value, uint32_t timestamp, const S
     Serial.print(timestamp);
     Serial.print(":");
   }
-  Serial.print(value);
+  Serial.print(value, digits);
   if (unit.length() > 0) {
     Serial.print("§");
     Serial.print(unit);
@@ -41,9 +41,9 @@ void teleplot_print(const String &name, int32_t value, uint32_t timestamp, const
   Serial.println();
 }
 
-void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp, const String &unit) {
+void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp, const String &unit, int digits) {
   String fullName = group + "/" + name;
-  teleplot_print(fullName, value, timestamp, unit);
+  teleplot_print(fullName, value, timestamp, unit, "", digits);
 }
 
 void teleplot_print_group(const String &group, const String &name, int32_t value, uint32_t timestamp, const String &unit) {
@@ -71,9 +71,9 @@ void teleplot_print_xy(const String &name, float x, float y) {
   Serial.print(">");
   Serial.print(name);
   Serial.print(":");
-  Serial.print(x);
+  Serial.print(x, 4);
   Serial.print(":");
-  Serial.print(y);
+  Serial.print(y, 4);
   Serial.println("|xy");
 }
 
@@ -89,7 +89,7 @@ void teleplot_print_array(const String &group, const int32_t data[], size_t coun
   }
 }
 
-void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit) {
+void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit, int digits) {
   if (count == 0) return;
   Serial.print(">");
   Serial.print(name);
@@ -97,7 +97,7 @@ void teleplot_print_batch(const String &name, const float data[], const uint32_t
   for (size_t i = 0; i < count; i++) {
     Serial.print(timestamps[i]);
     Serial.print(":");
-    Serial.print(data[i]);
+    Serial.print(data[i], digits);
     if (i < count - 1) {
       Serial.print(";");
     }

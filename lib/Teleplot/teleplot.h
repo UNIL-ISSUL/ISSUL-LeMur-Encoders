@@ -17,11 +17,11 @@
 #include <Arduino.h>
 
 // Single value plotting
-void teleplot_print(const String &name, float value, uint32_t timestamp = 0, const String &unit = "", const String &flags = "");
+void teleplot_print(const String &name, float value, uint32_t timestamp = 0, const String &unit = "", const String &flags = "", int digits = 4);
 void teleplot_print(const String &name, int32_t value, uint32_t timestamp = 0, const String &unit = "", const String &flags = "");
 
 // Grouped plotting: superimposes curves on the same chart under "group"
-void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp = 0, const String &unit = "");
+void teleplot_print_group(const String &group, const String &name, float value, uint32_t timestamp = 0, const String &unit = "", int digits = 4);
 void teleplot_print_group(const String &group, const String &name, int32_t value, uint32_t timestamp = 0, const String &unit = "");
 
 // Text & State plotting (renders as text indicator / log in Teleplot using |t)
@@ -40,6 +40,6 @@ void teleplot_print_array(const String &group, const T (&data)[N], uint32_t time
 }
 
 // Time-series batch (t0:v0;t1:v1;...)
-void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit = "");
+void teleplot_print_batch(const String &name, const float data[], const uint32_t timestamps[], size_t count, const String &unit = "", int digits = 4);
 
 #endif // TELEPLOT_H
