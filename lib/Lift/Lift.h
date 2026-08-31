@@ -14,7 +14,6 @@
 #define BELT_HEIGHT_MM               185.0f
 #define SPEED_TO_ANALOG_GAIN         1.03f
 #define SPEED_TO_ANALOG_OFFSET       0.0f
-#define PCT_TRESHOLD                 12.0f
 #define ADC_I2C_ADDRESS              0x48
 #define THRESHOLD_ANGLE_DEG          78.0f
 #define SLOPE_MM_PER_DEG             6.3853f
@@ -56,7 +55,6 @@ public:
     void moveUp();
     void moveDown();
     void stop();
-    void move(float pid_output);
     void setMinOutputPct(float min_pct) { minOutputPct = min_pct; }
     float getMinOutputPct() const { return minOutputPct; }
     float computeHeight(float angle_deg);
@@ -71,5 +69,4 @@ private:
     uint8_t dacAddress;
     DFRobot_GP8413 GP8413;
     RunningMedian adcMedian;
-    float horizontalPosition(float angle_deg);
 };

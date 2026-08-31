@@ -122,11 +122,6 @@ float Lift::computeHeight(float angle_deg) {
     return verticalPosition_mm;
 }
 
-float Lift::horizontalPosition(float angle_deg) {
-    double angle = radians(angle_deg);
-    return BELT_LENGTH_MM * cos(angle) - BELT_HEIGHT_MM * cos(PI/2 - angle);
-}
-
 void Lift::setSpeed(float speed_pct) {
     float pct = constrain(fabs(speed_pct), 0.0f, 100.0f);
     float dac_val_f = (pct / 100.0f) * 32767.0f * SPEED_TO_ANALOG_GAIN + SPEED_TO_ANALOG_OFFSET;
@@ -148,20 +143,4 @@ void Lift::stop() {
     digitalWrite(upPin, LOW);
     digitalWrite(downPin, LOW);
     setSpeed(0);
-}
-
-void Lift::move(float pid_output) {
-    float speed = fabs(pid_output);
-    if (speed < minOutputPct) {
-        setSpeed(0.0);
-        return;
-    }
-    setSpeed(speed);
-    if (pid_output > 0.0f) {
-        moveUp();
-    } else if (pid_output < 0.0f) {
-        moveDown();
-    } else {
-        stop();    
-    }
 }

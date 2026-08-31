@@ -64,10 +64,15 @@
 
 // ============================================================================
 // LIFT NON-LINEAR SQUARE-ROOT CONTROLLER PARAMETERS
+// ----------------------------------------------------------------------------
+// Tuned for Mitsubishi FR-D700 VFD Drive with Mechanical Holding Brake:
+//   - Pr. 13  = 2.0 Hz  (Starting Frequency: matched by LIFT_MIN_DRIVE_PCT = 4%)
+//   - Pr. 152 = 2.0 %   (Zero Current Detection Level for Y13 Brake Release)
+//   - Pr. 153 = 0.05 s  (Zero Current Detection Delay: immediate brake lock at stop)
 // ============================================================================
-#define LIFT_SQRT_GAIN_DEFAULT    8.0f       // Square-root gain (% / sqrt(mm))
-#define LIFT_DEADBAND_DEG_DEFAULT 0.30f      // Deadband angle threshold (± 0.30 deg)
-#define LIFT_MIN_DRIVE_PCT        12.0f      // Minimum moving speed floor for brake release (> Pr.152)
+#define LIFT_SQRT_GAIN_DEFAULT    6.0f       // Square-root gain (% / sqrt(mm))
+#define LIFT_DEADBAND_DEG_DEFAULT 0.10f      // Deadband angle threshold (± 0.10 deg)
+#define LIFT_MIN_DRIVE_PCT        4.0f       // Minimum moving speed floor (matches Pr.13 @ 2 Hz)
 #define LIFT_MAX_DRIVE_PCT        100.0f     // Maximum speed percentage (100% = 5V DAC)
 #define LIFT_ANGLE_MIN_DEG        0.0f
 #define LIFT_ANGLE_MAX_DEG        90.0f
