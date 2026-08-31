@@ -105,7 +105,7 @@ void setup() {
   }
 
   // 3. Configure Lift PID
-  lift.setMinOutputPct(LIFT_MIN_OUTPUT_PCT);
+  lift.setMinOutputPct(LIFT_MIN_DRIVE_PCT);
   liftPID.SetTunings(liftKp, liftKi, liftKd);
   liftPID.SetSampleTimeUs(UPDATE_PERIOD_US);
   liftPID.SetOutputLimits(LIFT_PID_OUT_MIN, LIFT_PID_OUT_MAX);
@@ -161,9 +161,40 @@ void loop() {
     delayMicroseconds(10);
     lift.update();
     liftInput = lift.getHeight_mm();
+
     if (liftPID.GetMode() == (uint8_t)QuickPID::Control::automatic) {
-      liftPID.Compute();
-      lift.move(liftOutput);
+      static bool is_holding = false;
+      float error = liftSetpoint - liftInput;
+
+      if (is_holding) {
+        if (fabs(error) > LIFT_POS_HYSTERESIS_MM) {
+          is_holding = false;
+          liftPID.Reset();
+        } else {
+          lift.stop();
+          liftOutput = 0.0f;
+        }
+      }
+
+      if (!is_holding) {
+        if (fabs(error) <= LIFT_POS_TOLERANCE_MM) {
+          is_holding = true;
+          lift.stop();
+          liftOutput = 0.0f;
+        } else {
+          liftPID.Compute();
+          float speed = fabs(liftOutput);
+          if (speed < LIFT_MIN_DRIVE_PCT) speed = LIFT_MIN_DRIVE_PCT;
+          lift.setSpeed(speed);
+          if (liftOutput > 0.0f) {
+            lift.moveUp();
+          } else if (liftOutput < 0.0f) {
+            lift.moveDown();
+          } else {
+            lift.stop();
+          }
+        }
+      }
     }
 
     // 5. Select active speed feedback
