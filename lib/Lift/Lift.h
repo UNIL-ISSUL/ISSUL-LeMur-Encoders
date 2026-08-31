@@ -2,13 +2,12 @@
 
 #include <Arduino.h>
 #include <DFRobot_GP8XXX.h>
+#include <RunningMedian.h>
 
 // Constant physical and electrical parameters (Calibration Baumer GIM500R via ADS1110)
 // Regression R² = 0.999995 | RMSE = 0.066 deg | Max Error = 0.098 deg (lift-calibration.txt)
 #define ANALOG_TO_ANGLE_GAIN         19.057528f   // deg/V
-#define ANALOG_TO_ANGLE_OFFSET_STOP  -2.793855f   // deg (Belt stopped, nominal calibration)
-#define ANALOG_TO_ANGLE_OFFSET_RUN   -2.603280f   // deg (Belt running, +0.191 deg compensation for 10mV drop)
-#define ANALOG_TO_ANGLE_OFFSET       ANALOG_TO_ANGLE_OFFSET_STOP
+#define ANALOG_TO_ANGLE_OFFSET       -2.793855f   // deg (Nominal calibration R²=0.999995)
 #define ANALOG_TO_ANGLE_GAIN_I2C     1.0f
 #define ANALOG_TO_ANGLE_OFFSET_I2C   0.0f
 #define BELT_LENGTH_MM               2630.0f
@@ -19,10 +18,6 @@
 #define ADC_I2C_ADDRESS              0x48
 #define THRESHOLD_ANGLE_DEG          78.0f
 #define SLOPE_MM_PER_DEG             6.3853f
-
-#ifndef LIFT_SENSOR_FILTER_ALPHA
-#define LIFT_SENSOR_FILTER_ALPHA     0.20f // Fast low-pass filter (tau = 25ms @ 200 Hz)
-#endif
 
 #ifndef ADC_ADDR
 #define ADC_ADDR 0x48
@@ -52,7 +47,7 @@ public:
     int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange5V);
     int checkHardware(bool &dac_ok, bool &adc_ok);
     static const char* getStatusMessage(int code);
-    void update(bool belt_running = false);
+    void update();
     float getInclinaison_deg();
     float getVoltage(bool raw = false);
     float getSensorValue(bool raw = false);
@@ -75,5 +70,6 @@ private:
     char downPin;
     uint8_t dacAddress;
     DFRobot_GP8413 GP8413;
+    RunningMedian adcMedian;
     float horizontalPosition(float angle_deg);
 };

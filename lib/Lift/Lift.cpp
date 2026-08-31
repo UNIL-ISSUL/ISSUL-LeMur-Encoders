@@ -15,7 +15,7 @@ float Lift::readADC() {
   return deltaV * 6.1f; // m5stack ADCv1.1 voltage divider (510k + 100k) / 100k = 6.1
 }
 
-Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR) {
+Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR), adcMedian(5) {
     this->upPin = upPin;
     this->downPin = downPin;
     this->dacAddress = DAC_ADDR;
@@ -33,7 +33,7 @@ Lift::~Lift() {
 const char* Lift::getStatusMessage(int code) {
     switch (code) {
         case LIFT_OK:                 return "OK";
-        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-5V DAC (0x59) NOT FOUND";
+        case LIFT_ERR_DAC_NOT_FOUND:  return "GP8413 0-5V DAC (0x5A) NOT FOUND";
         case LIFT_ERR_ADC_NOT_FOUND:  return "ADS1110 ADC (0x48) NOT FOUND";
         case LIFT_ERR_ADC_CONFIG_FAIL:return "ADS1110 ADC config write failed";
         case LIFT_ERR_ADC_READ_FAIL:  return "ADS1110 ADC reading failed";
@@ -87,15 +87,11 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
     return LIFT_OK;
 }
 
-void Lift::update(bool belt_running) {
+void Lift::update() {
     sensorValueRaw = readADC();
-    if (sensorValue == 0.0f) {
-        sensorValue = sensorValueRaw; // Instant initialization at boot
-    } else {
-        sensorValue += LIFT_SENSOR_FILTER_ALPHA * (sensorValueRaw - sensorValue);
-    }
-    float offset = belt_running ? ANALOG_TO_ANGLE_OFFSET_RUN : ANALOG_TO_ANGLE_OFFSET_STOP;
-    inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + offset;
+    adcMedian.add(sensorValueRaw);
+    sensorValue = adcMedian.getMedian();
+    inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + ANALOG_TO_ANGLE_OFFSET;
     height_mm = computeHeight(inclinaison_deg);
 }
 
@@ -157,7 +153,6 @@ void Lift::stop() {
 void Lift::move(float pid_output) {
     float speed = fabs(pid_output);
     if (speed < minOutputPct) {
-        stop();
         return;
     }
     setSpeed(speed);

@@ -67,10 +67,10 @@
 // ============================================================================
 #define LIFT_PID_KP_DEFAULT       0.8f       // Proportional gain (% / mm)
 #define LIFT_PID_KI_DEFAULT       0.0f       // Integral gain (0 = no integrator windup)
-#define LIFT_PID_KD_DEFAULT       0.10f      // Derivative damping gain (seconds)
+#define LIFT_PID_KD_DEFAULT       0.0f      // Derivative damping gain (seconds)
 #define LIFT_PID_OUT_MIN          -100.0f    // -100% to +100%
 #define LIFT_PID_OUT_MAX          100.0f
-#define LIFT_MIN_OUTPUT_PCT       1.0f       // Minimum output threshold (< 1% => motor stopped)
+#define LIFT_MIN_OUTPUT_PCT       0.5f       // Minimum output threshold (< 1% => motor stopped)
 #define LIFT_SENSOR_FILTER_ALPHA  0.20f      // Fast low-pass filter (tau = 25ms @ 200 Hz)
 #define LIFT_ANGLE_MIN_DEG        0.0f
 #define LIFT_ANGLE_MAX_DEG        90.0f
