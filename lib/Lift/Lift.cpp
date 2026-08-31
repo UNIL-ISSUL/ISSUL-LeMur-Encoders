@@ -153,6 +153,7 @@ void Lift::stop() {
 void Lift::move(float pid_output) {
     float speed = fabs(pid_output);
     if (speed < minOutputPct) {
+        setSpeed(0.0);
         return;
     }
     setSpeed(speed);
