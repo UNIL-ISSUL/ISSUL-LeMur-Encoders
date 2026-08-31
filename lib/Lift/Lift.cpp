@@ -89,7 +89,11 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
 
 void Lift::update(bool belt_running) {
     sensorValueRaw = readADC();
-    sensorValue = sensorValueRaw; // Direct measurement without phase lag
+    if (sensorValue == 0.0f) {
+        sensorValue = sensorValueRaw; // Instant initialization at boot
+    } else {
+        sensorValue += LIFT_SENSOR_FILTER_ALPHA * (sensorValueRaw - sensorValue);
+    }
     float offset = belt_running ? ANALOG_TO_ANGLE_OFFSET_RUN : ANALOG_TO_ANGLE_OFFSET_STOP;
     inclinaison_deg = sensorValue * ANALOG_TO_ANGLE_GAIN + offset;
     height_mm = computeHeight(inclinaison_deg);

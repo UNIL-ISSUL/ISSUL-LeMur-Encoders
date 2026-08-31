@@ -20,6 +20,10 @@
 #define THRESHOLD_ANGLE_DEG          78.0f
 #define SLOPE_MM_PER_DEG             6.3853f
 
+#ifndef LIFT_SENSOR_FILTER_ALPHA
+#define LIFT_SENSOR_FILTER_ALPHA     0.20f // Fast low-pass filter (tau = 25ms @ 200 Hz)
+#endif
+
 #ifndef ADC_ADDR
 #define ADC_ADDR 0x48
 #endif
