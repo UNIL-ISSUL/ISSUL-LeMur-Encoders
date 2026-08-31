@@ -14,7 +14,7 @@
 // I2C Pins
 #define I2C_SDA_PIN           G25
 #define I2C_SCL_PIN           G21
-#define I2C_FREQ_HZ           400000UL
+#define I2C_FREQ_HZ           100000UL
 
 // Modbus RS485 Pins
 #define MODBUS_RX_PIN         33
