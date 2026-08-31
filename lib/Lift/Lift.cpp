@@ -1,12 +1,7 @@
 #include "Lift.h"
 #include <Arduino.h>
-#include <Ewma.h>
 #include <Wire.h>
 #include <math.h>
-
-// Exponential Moving Average filters
-Ewma ewmaFilterIn(0.01);
-Ewma ewmaFilterOut(0.01);
 
 float Lift::readADC() {
   const int length = 2;
@@ -155,11 +150,11 @@ void Lift::stop() {
 }
 
 void Lift::move(float pid_output) {
-    float speed = ewmaFilterOut.filter(int(pid_output * 10)) / 10.0f;
+    float speed = fabs(pid_output);
     setSpeed(speed);
-    if (speed > 0.0f) {
+    if (pid_output > 0.0f) {
         moveUp();
-    } else if (speed < 0.0f) {
+    } else if (pid_output < 0.0f) {
         moveDown();
     } else {
         stop();    
