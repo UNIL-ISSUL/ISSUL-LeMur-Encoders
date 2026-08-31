@@ -58,12 +58,15 @@ public:
     void moveDown();
     void stop();
     void move(float pid_output);
+    void setMinOutputPct(float min_pct) { minOutputPct = min_pct; }
+    float getMinOutputPct() const { return minOutputPct; }
     float computeHeight(float angle_deg);
     float readADC();
 
 private:
     float sensorValue;
     float sensorValueRaw;
+    float minOutputPct;
     char upPin;
     char downPin;
     uint8_t dacAddress;

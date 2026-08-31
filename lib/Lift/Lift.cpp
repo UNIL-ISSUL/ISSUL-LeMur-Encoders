@@ -21,6 +21,7 @@ Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR) {
     this->dacAddress = DAC_ADDR;
     sensorValue = 0.0f;
     sensorValueRaw = 0.0f;
+    minOutputPct = 1.0f;
     inclinaison_deg = 0.0f;
     height_mm = 0.0f;
 }
@@ -151,6 +152,10 @@ void Lift::stop() {
 
 void Lift::move(float pid_output) {
     float speed = fabs(pid_output);
+    if (speed < minOutputPct) {
+        stop();
+        return;
+    }
     setSpeed(speed);
     if (pid_output > 0.0f) {
         moveUp();

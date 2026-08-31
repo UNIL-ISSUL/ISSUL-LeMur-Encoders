@@ -105,6 +105,7 @@ void setup() {
   }
 
   // 3. Configure Lift PID
+  lift.setMinOutputPct(LIFT_MIN_OUTPUT_PCT);
   liftPID.SetTunings(liftKp, liftKi, liftKd);
   liftPID.SetSampleTimeUs(UPDATE_PERIOD_US);
   liftPID.SetOutputLimits(LIFT_PID_OUT_MIN, LIFT_PID_OUT_MAX);

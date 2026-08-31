@@ -65,11 +65,12 @@
 // ============================================================================
 // LIFT PID REGULATION PARAMETERS
 // ============================================================================
-#define LIFT_PID_KP_DEFAULT   0.2f
+#define LIFT_PID_KP_DEFAULT   0.4f
 #define LIFT_PID_KI_DEFAULT   0.0f
-#define LIFT_PID_KD_DEFAULT   0.0f
+#define LIFT_PID_KD_DEFAULT   0.01f
 #define LIFT_PID_OUT_MIN      -100.0f    // -100% to +100%
 #define LIFT_PID_OUT_MAX      100.0f
+#define LIFT_MIN_OUTPUT_PCT   1.0f       // Minimum output threshold (< 1% => motor stopped)
 #define LIFT_ANGLE_MIN_DEG    0.0f
 #define LIFT_ANGLE_MAX_DEG    90.0f
 
