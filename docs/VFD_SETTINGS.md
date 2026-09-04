@@ -14,18 +14,24 @@ This document describes the optimal parameter settings for the **Mitsubishi FR-D
 
 ---
 
-## 2. Firmware Controller Parameters (`include/config.h`)
+## 2. Firmware Controller Parameters (`include/config.h` & `lib/Lift/Lift.h`)
 
 ```cpp
-#define LIFT_SQRT_GAIN_DEFAULT    6.0f       // Square-root gain (% / sqrt(mm))
-#define LIFT_DEADBAND_DEG_DEFAULT 0.10f      // Deadband angle tolerance (± 0.10 deg)
+// Non-Linear Square-Root Controller
+#define LIFT_SQRT_GAIN_DEFAULT    5.0f       // Square-root gain (% / sqrt(mm))
+#define LIFT_DEADBAND_DEG_DEFAULT 0.05f      // Deadband angle tolerance (± 0.05 deg)
 #define LIFT_MIN_DRIVE_PCT        4.0f       // Minimum moving speed floor (matches Pr. 13 @ 2.0 Hz)
 #define LIFT_MAX_DRIVE_PCT        100.0f     // Maximum speed percentage (100% = 5V DAC)
+
+// Inclinometer ADC Resolution (ADS1110 14-bit @ 60 SPS)
+// 1 LSB = 250 uV -> ~0.029 deg per LSB (Window of ±0.05 deg contains ~3.5 discrete steps)
+#define ADC_CONFIG_DEFAULT        ADC_CONFIG_60SPS_14BIT
+#define ADC_MIN_CODE_DEFAULT      ADC_MIN_CODE_14BIT
 ```
 
 ---
 
-## 3. Dynamic Sequence
+## 3. Dynamic Sequence & Positioning Latch
 
 ```mermaid
 sequenceDiagram
@@ -34,15 +40,19 @@ sequenceDiagram
     participant Brake as Mechanical Brake
     participant Motor as Actuator Leadscrew
 
-    Note over ESP,Motor: Motion Commanded (Outside Deadband > ±0.10°)
+    Note over ESP,Motor: Motion Commanded (Outside Deadband > ±0.05°)
     ESP->>VFD: FORWARD/BACKWARD = HIGH, DAC >= 4% (2.0 Hz)
     VFD->>Motor: Magnetizing Current > Pr. 152 (2.0%)
     VFD->>Brake: Signal Y13 Closes -> Brake Releases under torque
-    Motor->>Motor: Smooth constant-deceleration motion (v = 6.0 * sqrt(|e|))
+    Motor->>Motor: Smooth constant-deceleration motion (v = 5.0 * sqrt(|e|))
 
-    Note over ESP,Motor: Target Reached (Inside Deadband <= ±0.10°)
+    Note over ESP,Motor: Target Reached (Inside Deadband <= ±0.05°)
     ESP->>VFD: FORWARD/BACKWARD = LOW, DAC = 0 V
     VFD->>Motor: Output Current drops to 0 A
     Note over VFD,Brake: Pr. 153 Delay (0.05s)
     VFD->>Brake: Signal Y13 Opens -> Brake locks firmly at zero speed
+    Note over ESP: liftTargetReached = true (Latched Stopped)
+
+    Note over ESP,Motor: Subject Climbs / Sensor Noise (|error| > ±0.05°)
+    Note over ESP: Drive remains strictly STOPPED & locked until setpoint changes!
 ```

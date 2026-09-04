@@ -22,7 +22,22 @@
 #define ADC_ADDR 0x48
 #endif
 
-#define ADC_CONFIG_240FPS_PGA1 0x80 // 0b10000000 : 240 SPS continuous mode, PGA = 1
+#define ADC_CONFIG_240SPS_12BIT      0x80 // 12-bit (1 LSB = 1000 uV -> ~0.116 deg)
+#define ADC_CONFIG_60SPS_14BIT       0x84 // 14-bit (1 LSB = 250 uV  -> ~0.029 deg)
+#define ADC_CONFIG_30SPS_15BIT       0x88 // 15-bit (1 LSB = 125 uV  -> ~0.0145 deg)
+#define ADC_CONFIG_15SPS_16BIT       0x8C // 16-bit (1 LSB = 62.5 uV -> ~0.0072 deg)
+
+#define ADC_MIN_CODE_12BIT           2048.0f
+#define ADC_MIN_CODE_14BIT           8192.0f
+#define ADC_MIN_CODE_15BIT           16384.0f
+#define ADC_MIN_CODE_16BIT           32768.0f
+
+// Default ADS1110 configuration: 14-bit @ 60 SPS for maximum control bandwidth with ~0.029 deg resolution
+#define ADC_CONFIG_DEFAULT           ADC_CONFIG_60SPS_14BIT
+#define ADC_MIN_CODE_DEFAULT         ADC_MIN_CODE_14BIT
+
+// Backward compatibility
+#define ADC_CONFIG_240FPS_PGA1       ADC_CONFIG_240SPS_12BIT
 
 #ifndef DAC_ADDR
 #define DAC_ADDR 0x5A // GP8413 0-5V DAC address (configured with A0A1A2=010 -> 0x5A)
@@ -43,7 +58,9 @@ class Lift {
 public:
     Lift(char upPin, char downPin);
     ~Lift();
-    int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange5V);
+    int init(DFRobot_GP8XXX::eOutPutRange_t range = DFRobot_GP8XXX::eOutputRange5V,
+             uint8_t adc_config = ADC_CONFIG_DEFAULT,
+             float adc_min_code = ADC_MIN_CODE_DEFAULT);
     int checkHardware(bool &dac_ok, bool &adc_ok);
     static const char* getStatusMessage(int code);
     void update();
@@ -64,6 +81,8 @@ private:
     float sensorValue;
     float sensorValueRaw;
     float minOutputPct;
+    float adcMinCode;
+    uint8_t adcConfig;
     char upPin;
     char downPin;
     uint8_t dacAddress;

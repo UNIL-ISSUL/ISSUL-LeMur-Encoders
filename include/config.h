@@ -71,7 +71,7 @@
 //   - Pr. 153 = 0.05 s  (Zero Current Detection Delay: immediate brake lock at stop)
 // ============================================================================
 #define LIFT_SQRT_GAIN_DEFAULT    5.0f       // Square-root gain (% / sqrt(mm))
-#define LIFT_DEADBAND_DEG_DEFAULT 0.10f      // Deadband angle threshold (± 0.10 deg)
+#define LIFT_DEADBAND_DEG_DEFAULT 0.05f      // Deadband angle threshold (± 0.05 deg)
 #define LIFT_MIN_DRIVE_PCT        4.0f       // Minimum moving speed floor (matches Pr.13 @ 2 Hz)
 #define LIFT_MAX_DRIVE_PCT        100.0f     // Maximum speed percentage (100% = 5V DAC)
 #define LIFT_ANGLE_MIN_DEG        0.0f

@@ -19,6 +19,8 @@ float liftSetpointAngle = 0.0f;
 float liftSqrtGain = LIFT_SQRT_GAIN_DEFAULT;
 float liftDeadbandDeg = LIFT_DEADBAND_DEG_DEFAULT;
 float liftOutput = 0.0f;
+bool liftTargetReached = true;
+uint16_t last_reg_setpoint = 0;
 
 // Encoders & I2C Multiplexer
 UNIT_EXT_ENCODER encoders[MUX_MAX_ENC_CHANNELS];
@@ -109,6 +111,8 @@ void setup() {
   lift.stop();
   liftSetpointAngle = lift.getInclinaison_deg();
   registers[1] = (uint16_t)round(liftSetpointAngle * 100.0f);
+  last_reg_setpoint = registers[1];
+  liftTargetReached = true;
 
   // 4. Initialize digital speed filters
   belt_speed_filter.init(filter_order, b_coeffs, a_coeffs);
@@ -166,21 +170,30 @@ void loop() {
     float deadband_height_mm = fabs(lift.computeHeight(target_angle + liftDeadbandDeg) - target_height);
 
     if (coils[2]) { // Automatic Lift control enabled via Modbus Coil 2
-      if (fabs(error_height) <= deadband_height_mm) {
-        // Inside deadband: stop drive and engage mechanical brake immediately
+      if (liftTargetReached) {
+        // Target already reached for current setpoint: keep drive stopped and brake locked.
+        // Do not reactivate based on error deviations caused by subject weight or sensor noise.
         lift.stop(); // FORWARD_PIN = LOW, BACKWARD_PIN = LOW, DAC = 0
         liftOutput = 0.0f;
       } else {
-        // Outside deadband: Square-Root P-Controller for constant deceleration
-        float speed_pct = liftSqrtGain * sqrt(fabs(error_height));
-        speed_pct = constrain(speed_pct, LIFT_MIN_DRIVE_PCT, LIFT_MAX_DRIVE_PCT);
-        lift.setSpeed(speed_pct);
-        if (error_height > 0.0f) {
-          lift.moveUp(); // FORWARD_PIN = HIGH, BACKWARD_PIN = LOW
-          liftOutput = speed_pct;
+        if (fabs(error_height) <= deadband_height_mm) {
+          // Inside deadband (+/- 0.05 deg): stop drive and engage mechanical brake immediately
+          lift.stop(); // FORWARD_PIN = LOW, BACKWARD_PIN = LOW, DAC = 0
+          liftOutput = 0.0f;
+          liftTargetReached = true;
+          if (!debug) Serial.println("Lift target reached at " + String(current_angle, 2) + " deg (target: " + String(target_angle, 2) + " deg)");
         } else {
-          lift.moveDown(); // FORWARD_PIN = LOW, BACKWARD_PIN = HIGH
-          liftOutput = -speed_pct;
+          // Outside deadband: Square-Root P-Controller for constant deceleration
+          float speed_pct = liftSqrtGain * sqrt(fabs(error_height));
+          speed_pct = constrain(speed_pct, LIFT_MIN_DRIVE_PCT, LIFT_MAX_DRIVE_PCT);
+          lift.setSpeed(speed_pct);
+          if (error_height > 0.0f) {
+            lift.moveUp(); // FORWARD_PIN = HIGH, BACKWARD_PIN = LOW
+            liftOutput = speed_pct;
+          } else {
+            lift.moveDown(); // FORWARD_PIN = LOW, BACKWARD_PIN = HIGH
+            liftOutput = -speed_pct;
+          }
         }
       }
     } else {
@@ -254,8 +267,10 @@ void loop() {
         teleplot_print("DAC_Incl_mA", incl_mA, now, "mA");
         teleplot_print("Belt_Encoder_Count", (float)belt_encoder_count, now, "pulses");
         teleplot_print("Steps_Encoder_Count", (float)steps_encoder_count, now, "pulses");
+        teleplot_print("Lift_Target_Reached", liftTargetReached ? 1.0f : 0.0f, now, "state");
         teleplot_print_text("Status_Encoder", coils[0] ? "STEPS" : "BELT", now);
         teleplot_print_text("Status_Lift_Control", coils[2] ? "AUTO" : "MANUAL", now);
+        teleplot_print_text("Status_Lift_State", liftTargetReached ? "TARGET_REACHED" : "MOVING", now);
 
         batch_count = 0;
       }
@@ -284,6 +299,7 @@ void loop() {
     if (coils[2] != last_coil2) {
       last_coil2 = coils[2];
       if (coils[2]) {
+        liftTargetReached = false; // Re-evaluate position relative to setpoint upon auto activation
         if (!debug) Serial.println("Lift Auto mode enabled via Modbus (Coil 2 = 1)");
       } else {
         lift.stop();
@@ -292,12 +308,15 @@ void loop() {
     }
 
     // Register 1: Lift Setpoint Angle (0.01 deg)
-    static uint16_t last_reg_setpoint = 0;
     if (registers[1] != last_reg_setpoint) {
       last_reg_setpoint = registers[1];
       float setpoint_deg = (float)registers[1] / 100.0f;
-      liftSetpointAngle = constrain(setpoint_deg, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
-      if (!debug) Serial.println("Lift Setpoint Angle updated via Modbus: " + String(liftSetpointAngle) + " deg");
+      float new_target = constrain(setpoint_deg, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
+      if (fabs(new_target - liftSetpointAngle) > 0.005f) {
+        liftSetpointAngle = new_target;
+        liftTargetReached = false; // Arm movement towards new setpoint
+        if (!debug) Serial.println("Lift Setpoint Angle updated via Modbus: " + String(liftSetpointAngle, 2) + " deg");
+      }
     }
   }
 
@@ -333,6 +352,7 @@ void loop() {
       lift.stop();
     } else if (command == "auto") {
       coils[2] = true;
+      liftTargetReached = false;
       Serial.println("Lift Auto mode enabled");
     } else if (command == "manual") {
       coils[2] = false;
@@ -353,7 +373,9 @@ void loop() {
       float angle = getValue(command);
       liftSetpointAngle = constrain(angle, LIFT_ANGLE_MIN_DEG, LIFT_ANGLE_MAX_DEG);
       registers[1] = (uint16_t)round(liftSetpointAngle * 100.0f);
-      Serial.println("liftSetpointAngle:" + String(liftSetpointAngle) + " deg");
+      last_reg_setpoint = registers[1];
+      liftTargetReached = false;
+      Serial.println("liftSetpointAngle:" + String(liftSetpointAngle, 2) + " deg");
     }
   }
 }

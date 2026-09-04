@@ -10,8 +10,7 @@ float Lift::readADC() {
     return 0.0f;
   }
   int16_t raw = (int16_t)((Wire.read() << 8) | Wire.read());
-  const int16_t min_code = 2048; // 12-bit @ 240fps (PGA=1, full scale 2.048V)
-  float deltaV = raw * 2.048f / min_code; // conversion ADS1110 in datasheet (1 LSB = 1mV)
+  float deltaV = (float)raw * 2.048f / adcMinCode;
   return deltaV * 6.1f; // m5stack ADCv1.1 voltage divider (510k + 100k) / 100k = 6.1
 }
 
@@ -22,6 +21,8 @@ Lift::Lift(char upPin, char downPin) : GP8413(DAC_ADDR), adcMedian(5) {
     sensorValue = 0.0f;
     sensorValueRaw = 0.0f;
     minOutputPct = 1.0f;
+    adcMinCode = ADC_MIN_CODE_DEFAULT;
+    adcConfig = ADC_CONFIG_DEFAULT;
     inclinaison_deg = 0.0f;
     height_mm = 0.0f;
 }
@@ -53,7 +54,10 @@ int Lift::checkHardware(bool &dac_ok, bool &adc_ok) {
     return LIFT_OK;
 }
 
-int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
+int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range, uint8_t adc_config, float adc_min_code) {
+    this->adcConfig = adc_config;
+    this->adcMinCode = adc_min_code;
+
     pinMode(upPin, OUTPUT);
     pinMode(downPin, OUTPUT);
     digitalWrite(upPin, LOW);
@@ -71,13 +75,13 @@ int Lift::init(DFRobot_GP8XXX::eOutPutRange_t range) {
     GP8413.setDACOutRange(range);
     setSpeed(0);
 
-    // 2. Initialize and configure ADC ADS1110 (0x48) (240fps continuous mode, PGA=1)
+    // 2. Initialize and configure ADC ADS1110 (0x48)
     Wire.beginTransmission(ADC_ADDR);
     if (Wire.endTransmission() != 0) {
         return LIFT_ERR_ADC_NOT_FOUND;
     }
     Wire.beginTransmission(ADC_ADDR);
-    Wire.write(ADC_CONFIG_240FPS_PGA1);
+    Wire.write(this->adcConfig);
     if (Wire.endTransmission() != 0) {
         return LIFT_ERR_ADC_CONFIG_FAIL;
     }
